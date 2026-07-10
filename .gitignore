@@ -1,0 +1,14 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.auto.tfvars
+crash.log
+crash.*.log
+
+# Build artifacts
+*.zip
+# Lambda create-time seed zips are deliberately committed
+!projects/*/lambda_seed.zip
+*.tfplan

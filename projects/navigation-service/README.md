@@ -32,8 +32,8 @@ This stack consumes `modules/ecs-service-with-efs`. The module manages:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `environment` | — | `dev` or `prod` |
-| `container_image` | — | Full ECR image URI including tag |
+| `environment` | `dev` | `dev` or `prod` |
+| `container_image` | `public.ecr.aws/docker/library/busybox:latest` | Full ECR image URI including tag |
 | `container_port` | `8080` | Spring Boot server port |
 | `cpu` | `512` | Fargate CPU units |
 | `memory` | `1024` | Fargate memory (MiB) |
@@ -131,7 +131,7 @@ The task definition has `ignore_changes = [container_definitions]` so Terraform 
 
 ## CI
 
-Add this stack to `.github/workflows/plan.yml` matrix once the ECR repository exists:
+CI plan uses safe defaults (`environment=dev`, placeholder `container_image`) so validate/plan can run without project secrets or local `.tfvars`.
 
 ```yaml
 matrix:

@@ -7,11 +7,13 @@ variable "aws_region" {
 variable "environment" {
   description = "Environment name (dev, prod)."
   type        = string
+  default     = "dev"
 }
 
 variable "container_image" {
   description = "Full container image URI including tag. Updated by app CI; Terraform sets the initial value only."
   type        = string
+  default     = "public.ecr.aws/docker/library/busybox:latest"
 }
 
 variable "container_port" {

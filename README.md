@@ -7,9 +7,11 @@ Terraform for all personal projects (AWS account `543292785457`, region `eu-cent
 ```
 bootstrap/                 State bucket + CI OIDC role. LOCAL state (chicken-and-egg) — see below.
 shared/                    Cross-project resources (DNS zone, ACM certs). Currently empty — see TODO.
-modules/                   Shared local modules.
+modules/
+  ecs-service-with-efs/    Reusable module: ECS Fargate service + EFS persistent volume (SQLite).
 projects/
   radomskyi-com/           Static site (S3 + CloudFront) + StageHopper backend (API GW + Lambda + DynamoDB).
+  navigation-service/      Java Spring Boot service (ECS Fargate + EFS-backed SQLite). See its README.
   budgeter/                Placeholder — nothing deployed yet.
   spacetraders/            Placeholder — nothing deployed yet.
 ```

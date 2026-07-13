@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stack: [projects/radomskyi-com]
+        stack: [projects/radomskyi-com, projects/navigation-service]
     defaults:
       run:
         working-directory: ${{ matrix.stack }}

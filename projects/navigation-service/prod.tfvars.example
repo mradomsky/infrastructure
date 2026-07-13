@@ -1,0 +1,15 @@
+# prod — private subnets, locked-down ingress, higher resources.
+# Copy to prod.tfvars and fill in subnet_ids / vpc_id before first apply.
+environment      = "prod"
+container_image  = "543292785457.dkr.ecr.eu-central-1.amazonaws.com/navigation-service:latest"
+cpu              = 1024
+memory           = 2048
+desired_count    = 1
+assign_public_ip = false
+
+# Restrict ingress to VPC CIDR; expose publicly via ALB (managed outside this module).
+ingress_cidr_blocks = ["10.0.0.0/8"]
+
+# Uncomment and override when not using the default VPC:
+# vpc_id     = "vpc-xxxxxxxx"
+# subnet_ids = ["subnet-aaaa", "subnet-bbbb"]

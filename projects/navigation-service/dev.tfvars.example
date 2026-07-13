@@ -1,0 +1,9 @@
+# dev — default VPC, public subnets, single task, open ingress for iteration.
+# Copy to dev.tfvars and fill in container_image before first apply.
+environment      = "dev"
+container_image  = "543292785457.dkr.ecr.eu-central-1.amazonaws.com/navigation-service:latest"
+desired_count    = 1
+assign_public_ip = true
+
+# Allow inbound from anywhere while iterating; tighten for staging/prod.
+ingress_cidr_blocks = ["0.0.0.0/0"]

@@ -46,10 +46,13 @@ This stack consumes `modules/ecs-service-with-efs`. The module manages:
 
 ## Apply
 
+`*.tfvars` are gitignored (keep secrets out). Copy the example files and customise:
+
 ```bash
 cd projects/navigation-service
+cp dev.tfvars.example dev.tfvars      # gitignored — edit locally
+cp prod.tfvars.example prod.tfvars
 
-# dev
 terraform init
 terraform plan -var-file=dev.tfvars
 terraform apply -var-file=dev.tfvars

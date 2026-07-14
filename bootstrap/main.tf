@@ -97,7 +97,10 @@ data "aws_iam_policy_document" "github_plan_trust" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:mradomsky/infrastructure:*"]
+      values = [
+        "repo:mradomsky/infrastructure:*",
+        "repo:V-M-Pioneer-Trading/infrastructure:*"
+      ]
     }
   }
 }

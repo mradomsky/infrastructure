@@ -3,6 +3,7 @@
 Reusable personal shared infrastructure.
 
 Creates one Docker-ready EC2 host in default VPC, plus IAM instance profile and security group.
+Host is always provisioned with public networking and attached Elastic IP.
 State lives at S3 key `personal/terraform.tfstate` so sibling repos can read outputs via
 `terraform_remote_state`.
 

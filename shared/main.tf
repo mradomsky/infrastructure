@@ -75,7 +75,7 @@ resource "aws_instance" "shared_ec2" {
   subnet_id                   = local.default_subnet_id
   vpc_security_group_ids      = [aws_security_group.shared_ec2.id]
   iam_instance_profile        = aws_iam_instance_profile.shared_ec2.name
-  associate_public_ip_address = var.associate_public_ip_address
+  associate_public_ip_address = true
   user_data                   = <<-EOF
     #!/bin/bash
     set -euxo pipefail
@@ -102,7 +102,6 @@ resource "aws_instance" "shared_ec2" {
 }
 
 resource "aws_eip" "shared_ec2" {
-  count    = var.associate_public_ip_address ? 1 : 0
   domain   = "vpc"
   instance = aws_instance.shared_ec2.id
 

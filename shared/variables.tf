@@ -28,12 +28,6 @@ variable "root_volume_size_gib" {
   default     = 20
 }
 
-variable "associate_public_ip_address" {
-  description = "Assign public IP so sibling repos can target this host directly"
-  type        = bool
-  default     = true
-}
-
 variable "allowed_ingress_cidrs" {
   description = "CIDR ranges allowed to reach exposed container ports"
   type        = list(string)

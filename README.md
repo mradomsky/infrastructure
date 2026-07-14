@@ -20,7 +20,7 @@ projects/
 - Docker installed by `user_data`
 - SSM-managed instance profile
 - Closed-by-default security group
-- Stable Elastic IP output when public access is enabled
+- Stable public Elastic IP output
 - Outputs for sibling repos: `ec2_instance_ip`, `ec2_security_group_id`
 
 `V-M-Pioneer-Trading/infrastructure` can read those outputs from S3 key

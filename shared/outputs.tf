@@ -4,8 +4,8 @@ output "ec2_instance_id" {
 }
 
 output "ec2_instance_ip" {
-  description = "Public IP when enabled, otherwise private IP"
-  value       = var.associate_public_ip_address ? aws_eip.shared_ec2[0].public_ip : aws_instance.shared_ec2.private_ip
+  description = "Public Elastic IP for shared EC2 instance"
+  value       = aws_eip.shared_ec2.public_ip
 }
 
 output "ec2_security_group_id" {

@@ -12,13 +12,3 @@ output "cloudfront_domain_name" {
   description = "The domain name of the CloudFront distribution"
   value       = aws_cloudfront_distribution.website_distribution.domain_name
 }
-
-output "stagehopper_api_endpoint" {
-  description = "API Gateway endpoint for StageHopper (accessed via CloudFront /api/*)"
-  value       = aws_apigatewayv2_api.stagehopper.api_endpoint
-}
-
-output "stagehopper_dynamodb_table" {
-  description = "DynamoDB table name for StageHopper selections"
-  value       = aws_dynamodb_table.stagehopper_selections.name
-}

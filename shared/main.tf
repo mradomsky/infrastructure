@@ -10,7 +10,7 @@ data "aws_subnets" "default" {
 }
 
 data "aws_ssm_parameter" "amazon_linux_2023_ami" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
 }
 
 locals {
@@ -108,4 +108,31 @@ resource "aws_eip" "shared_ec2" {
   tags = {
     Name = "${var.instance_name}-eip"
   }
+}
+
+resource "aws_sns_topic" "alerts" {
+  name = "${var.instance_name}-alerts"
+}
+
+resource "aws_sns_topic_subscription" "alerts_email" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
+resource "aws_cloudwatch_metric_alarm" "shared_ec2_status_check" {
+  alarm_name          = "${var.instance_name}-status-check-failed"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "StatusCheckFailed"
+  namespace           = "AWS/EC2"
+  period              = 300
+  statistic           = "Maximum"
+  threshold           = 0
+  alarm_description   = "Shared EC2 host failed an instance/system status check."
+  dimensions = {
+    InstanceId = aws_instance.shared_ec2.id
+  }
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
 }

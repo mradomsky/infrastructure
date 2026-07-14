@@ -1,4 +1,18 @@
 # ============================================================
+# Shared state — alerts topic
+# ============================================================
+
+data "terraform_remote_state" "personal" {
+  backend = "s3"
+
+  config = {
+    bucket = "radomskyi-tfstate"
+    key    = "personal/terraform.tfstate"
+    region = var.aws_region
+  }
+}
+
+# ============================================================
 # S3 — static SvelteKit build
 # ============================================================
 
@@ -7,6 +21,13 @@ resource "aws_s3_bucket" "website" {
 
   tags = {
     Name = "${var.domain_name}-website"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "website" {
+  bucket = aws_s3_bucket.website.id
+  versioning_configuration {
+    status = "Enabled"
   }
 }
 
@@ -172,10 +193,6 @@ resource "aws_dynamodb_table" "stagehopper_selections" {
     attribute_name = "expiresAt"
     enabled        = true
   }
-
-  tags = {
-    Project = "StageHopper"
-  }
 }
 
 # ============================================================
@@ -193,10 +210,6 @@ resource "aws_iam_role" "stagehopper_lambda" {
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
-
-  tags = {
-    Project = "StageHopper"
-  }
 }
 
 resource "aws_iam_role_policy" "stagehopper_lambda" {
@@ -254,10 +267,6 @@ resource "aws_lambda_function" "stagehopper" {
       SITE_ORIGIN = "https://${var.domain_name}"
     }
   }
-
-  tags = {
-    Project = "StageHopper"
-  }
 }
 
 resource "aws_lambda_permission" "stagehopper_apigw" {
@@ -266,6 +275,23 @@ resource "aws_lambda_permission" "stagehopper_apigw" {
   function_name = aws_lambda_function.stagehopper.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.stagehopper.execution_arn}/*/*"
+}
+
+resource "aws_cloudwatch_metric_alarm" "stagehopper_lambda_errors" {
+  alarm_name          = "stagehopper-lambda-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "stagehopper Lambda returned one or more errors."
+  dimensions = {
+    FunctionName = aws_lambda_function.stagehopper.function_name
+  }
+  alarm_actions = [data.terraform_remote_state.personal.outputs.alerts_topic_arn]
+  ok_actions    = [data.terraform_remote_state.personal.outputs.alerts_topic_arn]
 }
 
 # ============================================================
@@ -282,10 +308,6 @@ resource "aws_apigatewayv2_api" "stagehopper" {
     allow_headers     = ["Content-Type"]
     allow_credentials = true
     max_age           = 300
-  }
-
-  tags = {
-    Project = "StageHopper"
   }
 }
 
@@ -337,10 +359,6 @@ resource "aws_acm_certificate" "stagehopper" {
 
   lifecycle {
     create_before_destroy = true
-  }
-
-  tags = {
-    Project = "StageHopper"
   }
 }
 
@@ -402,13 +420,16 @@ resource "aws_iam_role_policy" "stagehopper_github_actions" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "S3Deploy"
-        Effect = "Allow"
-        Action = ["s3:*"]
-        Resource = [
-          "arn:aws:s3:::${var.bucket_name}",
-          "arn:aws:s3:::${var.bucket_name}/*"
-        ]
+        Sid      = "S3DeployBucket"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket", "s3:GetBucketLocation"]
+        Resource = "arn:aws:s3:::${var.bucket_name}"
+      },
+      {
+        Sid      = "S3DeployObjects"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+        Resource = "arn:aws:s3:::${var.bucket_name}/*"
       },
       {
         Sid      = "CloudFrontInvalidate"

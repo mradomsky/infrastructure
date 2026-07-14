@@ -372,6 +372,10 @@ resource "aws_route53_record" "stagehopper_cert_validation" {
   type    = each.value.type
   ttl     = 60
   records = [each.value.record]
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_route53_record" "stagehopper" {

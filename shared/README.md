@@ -1,7 +1,10 @@
 # shared
 
-Cross-project resources: DNS zone, ACM certificates.
+Reusable personal shared infrastructure.
 
-Currently **empty by design** — the existing ACM cert and DNS predate Terraform management and
-were deliberately left out of the migration to keep it zero-change. See "TODO" in the root README
-for the import plan.
+Creates one Docker-ready EC2 host in default VPC, plus IAM instance profile and security group.
+State lives at S3 key `personal/terraform.tfstate` so sibling repos can read outputs via
+`terraform_remote_state`.
+
+Default ingress is closed. Open ports by setting both `allowed_ingress_cidrs` and
+`allowed_tcp_ports`.

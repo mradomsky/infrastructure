@@ -12,3 +12,8 @@ output "ec2_security_group_id" {
   description = "Security group attached to the shared EC2 instance"
   value       = aws_security_group.shared_ec2.id
 }
+
+output "alerts_topic_arn" {
+  description = "SNS topic for shared infrastructure CloudWatch alarms"
+  value       = aws_sns_topic.alerts.arn
+}

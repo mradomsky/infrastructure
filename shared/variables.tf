@@ -19,7 +19,13 @@ variable "instance_name" {
 variable "instance_type" {
   description = "EC2 instance type for shared container workloads"
   type        = string
-  default     = "t3.small"
+  default     = "t4g.small"
+}
+
+variable "alert_email" {
+  description = "Email address for shared infrastructure CloudWatch alarms"
+  type        = string
+  default     = "maxradomskyy@gmail.com"
 }
 
 variable "root_volume_size_gib" {

@@ -3,9 +3,14 @@ resource "aws_s3_bucket" "website" {
   bucket = var.bucket_name
 
   tags = {
-    Name        = "${var.domain_name}-website"
-    Environment = var.environment
-    Project     = "My Website"
+    Name = "${var.domain_name}-website"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "website" {
+  bucket = aws_s3_bucket.website.id
+  versioning_configuration {
+    status = "Enabled"
   }
 }
 

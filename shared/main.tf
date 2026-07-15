@@ -38,6 +38,38 @@ resource "aws_iam_role_policy_attachment" "shared_ec2_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+data "aws_caller_identity" "current" {}
+
+# KMS resource-based matching needs the key ARN, not the alias ARN.
+data "aws_kms_alias" "ssm" {
+  name = "alias/aws/ssm"
+}
+
+# Lets on-host bootstrap scripts (e.g. navigation-service's docker login)
+# read SecureString parameters the SSM default key encrypts. Parameters
+# themselves are created out-of-band (aws ssm put-parameter), not by
+# Terraform, so tokens never land in state.
+resource "aws_iam_role_policy" "shared_ec2_ssm_parameters" {
+  name = "${var.instance_name}-ssm-parameters"
+  role = aws_iam_role.shared_ec2.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "ssm:GetParameter"
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/navigation-service-ghcr-pat"
+      },
+      {
+        Effect   = "Allow"
+        Action   = "kms:Decrypt"
+        Resource = data.aws_kms_alias.ssm.target_key_arn
+      }
+    ]
+  })
+}
+
 resource "aws_iam_instance_profile" "shared_ec2" {
   name = "${var.instance_name}-profile"
   role = aws_iam_role.shared_ec2.name

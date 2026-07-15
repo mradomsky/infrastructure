@@ -263,8 +263,9 @@ resource "aws_lambda_function" "stagehopper" {
 
   environment {
     variables = {
-      TABLE_NAME  = aws_dynamodb_table.stagehopper_selections.name
-      SITE_ORIGIN = "https://${var.domain_name}"
+      TABLE_NAME       = aws_dynamodb_table.stagehopper_selections.name
+      SITE_ORIGIN      = "https://${var.domain_name}"
+      GOOGLE_CLIENT_ID = var.google_client_id
     }
   }
 }
@@ -327,12 +328,6 @@ resource "aws_apigatewayv2_route" "create_room" {
 resource "aws_apigatewayv2_route" "get_selections" {
   api_id    = aws_apigatewayv2_api.stagehopper.id
   route_key = "GET /api/stagehopper/rooms/{roomId}/selections"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
-}
-
-resource "aws_apigatewayv2_route" "put_selections" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "PUT /api/stagehopper/rooms/{roomId}/selections/{userId}"
   target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
 }
 

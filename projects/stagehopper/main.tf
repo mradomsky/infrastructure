@@ -263,8 +263,9 @@ resource "aws_lambda_function" "stagehopper" {
 
   environment {
     variables = {
-      TABLE_NAME  = aws_dynamodb_table.stagehopper_selections.name
-      SITE_ORIGIN = "https://${var.domain_name}"
+      TABLE_NAME       = aws_dynamodb_table.stagehopper_selections.name
+      SITE_ORIGIN      = "https://${var.domain_name}"
+      GOOGLE_CLIENT_ID = var.google_client_id
     }
   }
 }

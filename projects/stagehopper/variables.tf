@@ -27,3 +27,10 @@ variable "bucket_name" {
   type        = string
   default     = "stagehopper-radomskyi-com"
 }
+
+variable "google_client_id" {
+  description = "Google OAuth client ID used by the Lambda to verify Google ID tokens"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

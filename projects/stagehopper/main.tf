@@ -331,12 +331,6 @@ resource "aws_apigatewayv2_route" "get_selections" {
   target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
 }
 
-resource "aws_apigatewayv2_route" "put_selections" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "PUT /api/stagehopper/rooms/{roomId}/selections/{userId}"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
-}
-
 resource "aws_apigatewayv2_route" "put_selections_self" {
   api_id    = aws_apigatewayv2_api.stagehopper.id
   route_key = "PUT /api/stagehopper/rooms/{roomId}/selections"

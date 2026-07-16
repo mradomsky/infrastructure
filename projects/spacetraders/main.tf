@@ -90,7 +90,7 @@ resource "aws_cloudfront_distribution" "website_distribution" {
   }
 
   origin {
-    domain_name = data.terraform_remote_state.navigation_service.outputs.navigation_service_ec2_ip
+    domain_name = aws_route53_record.backend_host.fqdn
     origin_id   = "navigation-service"
     custom_origin_config {
       http_port              = data.terraform_remote_state.navigation_service.outputs.navigation_service_port
@@ -101,7 +101,7 @@ resource "aws_cloudfront_distribution" "website_distribution" {
   }
 
   origin {
-    domain_name = data.terraform_remote_state.agent_service.outputs.agent_service_ec2_ip
+    domain_name = aws_route53_record.backend_host.fqdn
     origin_id   = "agent-service"
     custom_origin_config {
       http_port              = data.terraform_remote_state.agent_service.outputs.agent_service_port
@@ -112,7 +112,7 @@ resource "aws_cloudfront_distribution" "website_distribution" {
   }
 
   origin {
-    domain_name = data.terraform_remote_state.fleet_service.outputs.fleet_service_ec2_ip
+    domain_name = aws_route53_record.backend_host.fqdn
     origin_id   = "fleet-service"
     custom_origin_config {
       http_port              = data.terraform_remote_state.fleet_service.outputs.fleet_service_port
@@ -245,6 +245,17 @@ resource "aws_acm_certificate_validation" "spacetraders" {
 
 data "aws_route53_zone" "parent" {
   name = var.parent_domain
+}
+
+# CloudFront custom origins reject bare IP addresses as domain_name ("The parameter origin
+# name cannot be an IP address") — this gives the shared EC2 host a real DNS name for all
+# three backend origins to use.
+resource "aws_route53_record" "backend_host" {
+  zone_id = data.aws_route53_zone.parent.zone_id
+  name    = "spacetraders-backend.${var.parent_domain}"
+  type    = "A"
+  ttl     = 300
+  records = [data.terraform_remote_state.navigation_service.outputs.navigation_service_ec2_ip]
 }
 
 resource "aws_route53_record" "spacetraders_cert_validation" {

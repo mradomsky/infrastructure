@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        stack: [bootstrap, shared, projects/radomskyi-com, projects/stagehopper]
+        stack: [bootstrap, shared, projects/radomskyi-com, projects/stagehopper, projects/spacetraders]
     defaults:
       run:
         working-directory: ${{ matrix.stack }}

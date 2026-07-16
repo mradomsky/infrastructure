@@ -8,9 +8,12 @@ Terraform for personal AWS infrastructure (`543292785457`, `eu-central-1`).
 bootstrap/                 State bucket + GitHub Actions OIDC role. Local state only.
 shared/                    Shared EC2 host for Docker workloads. Remote state key: personal/terraform.tfstate.
 projects/
-  radomskyi-com/           Static site + StageHopper backend.
+  radomskyi-com/           Static site.
+  stagehopper/             Static site + Lambda/API Gateway backend.
+  spacetraders/            Static site + CloudFront routing to the SpaceTraders backend stacks
+                           (V-M-Pioneer-Trading/infrastructure's navigation-service, agent-service,
+                           fleet-service, each read via cross-repo terraform_remote_state).
   budgeter/                Placeholder.
-  spacetraders/            Placeholder.
 ```
 
 ## Shared EC2 stack
@@ -32,7 +35,8 @@ projects/
 - Shared stack key: `personal/terraform.tfstate`
 - Other stacks keep per-stack keys such as `radomskyi-com/terraform.tfstate`
 - PR CI runs `terraform fmt -check -recursive`, `terraform init`, `terraform validate`, and
-  `terraform plan -lock=false` for `shared/` and `projects/radomskyi-com`
+  `terraform plan -lock=false` for `bootstrap/`, `shared/`, `projects/radomskyi-com`,
+  `projects/stagehopper`, and `projects/spacetraders`
 - OIDC trust on bootstrap plan role allows both `mradomsky/infrastructure` and
   `V-M-Pioneer-Trading/infrastructure`
 

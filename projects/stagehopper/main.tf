@@ -195,6 +195,23 @@ resource "aws_dynamodb_table" "stagehopper_selections" {
   }
 }
 
+resource "aws_dynamodb_table" "stagehopper_room_memberships" {
+  name         = "stagehopper-room-memberships"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "userId"
+  range_key    = "roomId"
+
+  attribute {
+    name = "userId"
+    type = "S"
+  }
+
+  attribute {
+    name = "roomId"
+    type = "S"
+  }
+}
+
 # ============================================================
 # Lambda IAM
 # ============================================================
@@ -224,9 +241,14 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
         Action = [
           "dynamodb:GetItem",
           "dynamodb:PutItem",
+          "dynamodb:DeleteItem",
           "dynamodb:Query",
+          "dynamodb:TransactWriteItems",
         ]
-        Resource = aws_dynamodb_table.stagehopper_selections.arn
+        Resource = [
+          aws_dynamodb_table.stagehopper_selections.arn,
+          aws_dynamodb_table.stagehopper_room_memberships.arn,
+        ]
       },
       {
         Effect = "Allow"
@@ -263,9 +285,10 @@ resource "aws_lambda_function" "stagehopper" {
 
   environment {
     variables = {
-      TABLE_NAME       = aws_dynamodb_table.stagehopper_selections.name
-      SITE_ORIGIN      = "https://${var.domain_name}"
-      GOOGLE_CLIENT_ID = var.google_client_id
+      TABLE_NAME             = aws_dynamodb_table.stagehopper_selections.name
+      MEMBERSHIPS_TABLE_NAME = aws_dynamodb_table.stagehopper_room_memberships.name
+      SITE_ORIGIN            = "https://${var.domain_name}"
+      GOOGLE_CLIENT_ID       = var.google_client_id
     }
   }
 }
@@ -305,7 +328,7 @@ resource "aws_apigatewayv2_api" "stagehopper" {
 
   cors_configuration {
     allow_origins     = ["https://${var.domain_name}"]
-    allow_methods     = ["GET", "POST", "PUT", "OPTIONS"]
+    allow_methods     = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers     = ["Content-Type"]
     allow_credentials = true
     max_age           = 300
@@ -334,6 +357,18 @@ resource "aws_apigatewayv2_route" "get_selections" {
 resource "aws_apigatewayv2_route" "put_selections_self" {
   api_id    = aws_apigatewayv2_api.stagehopper.id
   route_key = "PUT /api/stagehopper/rooms/{roomId}/selections"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "delete_selections_self" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "DELETE /api/stagehopper/rooms/{roomId}/selections"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "list_my_rooms" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "POST /api/stagehopper/users/me/rooms"
   target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
 }
 

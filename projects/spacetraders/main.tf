@@ -32,6 +32,16 @@ data "terraform_remote_state" "fleet_service" {
   }
 }
 
+data "terraform_remote_state" "automation_service" {
+  backend = "s3"
+
+  config = {
+    bucket = "radomskyi-tfstate"
+    key    = "automation-service/terraform.tfstate"
+    region = var.aws_region
+  }
+}
+
 # ============================================================
 # S3 — static Vite build
 # ============================================================
@@ -122,12 +132,26 @@ resource "aws_cloudfront_distribution" "website_distribution" {
     }
   }
 
-  # Backend routes — no caching, all methods + auth/CORS headers forwarded
+  origin {
+    domain_name = aws_route53_record.backend_host.fqdn
+    origin_id   = "automation-service"
+    custom_origin_config {
+      http_port              = data.terraform_remote_state.automation_service.outputs.automation_service_port
+      https_port             = 443
+      origin_protocol_policy = "http-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  # Backend routes — no caching, all methods + auth/CORS headers forwarded.
+  # Every service now self-mounts under a consistent /api/<service>/v1 prefix,
+  # so each gets exactly one pattern here.
   dynamic "ordered_cache_behavior" {
     for_each = {
-      "/api/v1/*"    = "navigation-service"
-      "/api/agent/*" = "agent-service"
-      "/api/fleet/*" = "fleet-service"
+      "/api/navigation/v1/*" = "navigation-service"
+      "/api/agent/v1/*"      = "agent-service"
+      "/api/fleet/v1/*"      = "fleet-service"
+      "/api/automation/v1/*" = "automation-service"
     }
 
     content {

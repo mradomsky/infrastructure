@@ -144,18 +144,14 @@ resource "aws_cloudfront_distribution" "website_distribution" {
   }
 
   # Backend routes — no caching, all methods + auth/CORS headers forwarded.
-  # automation-service has no /api/automation prefix of its own (unlike the other
-  # three, which each self-mount under their /api/* path) — it serves /autopilot,
-  # /planner, /metrics and /anomalies at its root, so each needs its own pattern.
+  # Every service now self-mounts under a consistent /api/<service>/v1 prefix,
+  # so each gets exactly one pattern here.
   dynamic "ordered_cache_behavior" {
     for_each = {
-      "/api/v1/*"    = "navigation-service"
-      "/api/agent/*" = "agent-service"
-      "/api/fleet/*" = "fleet-service"
-      "/autopilot/*" = "automation-service"
-      "/planner/*"   = "automation-service"
-      "/metrics/*"   = "automation-service"
-      "/anomalies/*" = "automation-service"
+      "/api/navigation/v1/*" = "navigation-service"
+      "/api/agent/v1/*"      = "agent-service"
+      "/api/fleet/v1/*"      = "fleet-service"
+      "/api/automation/v1/*" = "automation-service"
     }
 
     content {

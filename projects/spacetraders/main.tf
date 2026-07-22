@@ -32,6 +32,16 @@ data "terraform_remote_state" "fleet_service" {
   }
 }
 
+data "terraform_remote_state" "automation_service" {
+  backend = "s3"
+
+  config = {
+    bucket = "radomskyi-tfstate"
+    key    = "automation-service/terraform.tfstate"
+    region = var.aws_region
+  }
+}
+
 # ============================================================
 # S3 — static Vite build
 # ============================================================
@@ -122,12 +132,30 @@ resource "aws_cloudfront_distribution" "website_distribution" {
     }
   }
 
-  # Backend routes — no caching, all methods + auth/CORS headers forwarded
+  origin {
+    domain_name = aws_route53_record.backend_host.fqdn
+    origin_id   = "automation-service"
+    custom_origin_config {
+      http_port              = data.terraform_remote_state.automation_service.outputs.automation_service_port
+      https_port             = 443
+      origin_protocol_policy = "http-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  # Backend routes — no caching, all methods + auth/CORS headers forwarded.
+  # automation-service has no /api/automation prefix of its own (unlike the other
+  # three, which each self-mount under their /api/* path) — it serves /autopilot,
+  # /planner, /metrics and /anomalies at its root, so each needs its own pattern.
   dynamic "ordered_cache_behavior" {
     for_each = {
       "/api/v1/*"    = "navigation-service"
       "/api/agent/*" = "agent-service"
       "/api/fleet/*" = "fleet-service"
+      "/autopilot/*" = "automation-service"
+      "/planner/*"   = "automation-service"
+      "/metrics/*"   = "automation-service"
+      "/anomalies/*" = "automation-service"
     }
 
     content {

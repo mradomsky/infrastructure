@@ -145,13 +145,19 @@ resource "aws_cloudfront_distribution" "website_distribution" {
 
   # Backend routes — no caching, all methods + auth/CORS headers forwarded.
   # Every service now self-mounts under a consistent /api/<service>/v1 prefix,
-  # so each gets exactly one pattern here.
+  # plus an unversioned /api/<service>/health liveness probe used by
+  # command-interface's browser-side SystemStatus panel (health is
+  # deliberately not under /v1 — see each service's health handler).
   dynamic "ordered_cache_behavior" {
     for_each = {
-      "/api/navigation/v1/*" = "navigation-service"
-      "/api/agent/v1/*"      = "agent-service"
-      "/api/fleet/v1/*"      = "fleet-service"
-      "/api/automation/v1/*" = "automation-service"
+      "/api/navigation/v1/*"   = "navigation-service"
+      "/api/navigation/health" = "navigation-service"
+      "/api/agent/v1/*"        = "agent-service"
+      "/api/agent/health"      = "agent-service"
+      "/api/fleet/v1/*"        = "fleet-service"
+      "/api/fleet/health"      = "fleet-service"
+      "/api/automation/v1/*"   = "automation-service"
+      "/api/automation/health" = "automation-service"
     }
 
     content {

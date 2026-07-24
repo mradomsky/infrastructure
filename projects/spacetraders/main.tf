@@ -143,6 +143,20 @@ resource "aws_cloudfront_distribution" "website_distribution" {
     }
   }
 
+  # st-gateway is internal-only — this origin exists solely to serve its
+  # unauthenticated /api/st-gateway/health probe (see the ordered_cache_behavior
+  # below); no other path pattern routes here.
+  origin {
+    domain_name = aws_route53_record.backend_host.fqdn
+    origin_id   = "st-gateway"
+    custom_origin_config {
+      http_port              = data.terraform_remote_state.agent_service.outputs.gateway_port
+      https_port             = 443
+      origin_protocol_policy = "http-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
   # Backend routes — no caching, all methods + auth/CORS headers forwarded.
   # Every service now self-mounts under a consistent /api/<service>/v1 prefix,
   # plus an unversioned /api/<service>/health liveness probe used by
@@ -158,6 +172,7 @@ resource "aws_cloudfront_distribution" "website_distribution" {
       "/api/fleet/health"      = "fleet-service"
       "/api/automation/v1/*"   = "automation-service"
       "/api/automation/health" = "automation-service"
+      "/api/st-gateway/health" = "st-gateway"
     }
 
     content {

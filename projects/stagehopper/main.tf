@@ -243,6 +243,10 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
           "dynamodb:PutItem",
           "dynamodb:DeleteItem",
           "dynamodb:Query",
+          # Scan backs the admin room/user listing (no GSI for a global index);
+          # BatchWriteItem backs the chunked admin deletes across both tables.
+          "dynamodb:Scan",
+          "dynamodb:BatchWriteItem",
           "dynamodb:TransactWriteItems",
         ]
         Resource = [
@@ -422,6 +426,30 @@ resource "aws_apigatewayv2_route" "admin_festival_timetable_import" {
 resource "aws_apigatewayv2_route" "admin_festival_timetable_patch" {
   api_id    = aws_apigatewayv2_api.stagehopper.id
   route_key = "PATCH /api/stagehopper/admin/festivals/{id}/timetable"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_list_rooms" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "POST /api/stagehopper/admin/rooms"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_list_users" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "POST /api/stagehopper/admin/users"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_delete_room" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "DELETE /api/stagehopper/admin/rooms/{roomId}"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_delete_user" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "DELETE /api/stagehopper/admin/users/{userId}"
   target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
 }
 

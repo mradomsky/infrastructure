@@ -258,6 +258,26 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
           "logs:PutLogEvents",
         ]
         Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Sid    = "AdminDataReadWrite"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:HeadObject",
+        ]
+        # Covers data/festivals.json, data/timetable-{id}.json, and
+        # data/festival-images/* — the presigned image upload is signed with this
+        # role's credentials, so it needs PutObject even though the browser is
+        # what actually performs the PUT.
+        Resource = "${aws_s3_bucket.website.arn}/data/*"
+      },
+      {
+        Sid      = "AdminDataInvalidate"
+        Effect   = "Allow"
+        Action   = ["cloudfront:CreateInvalidation"]
+        Resource = aws_cloudfront_distribution.website_distribution.arn
       }
     ]
   })
@@ -289,6 +309,9 @@ resource "aws_lambda_function" "stagehopper" {
       MEMBERSHIPS_TABLE_NAME = aws_dynamodb_table.stagehopper_room_memberships.name
       SITE_ORIGIN            = "https://${var.domain_name}"
       GOOGLE_CLIENT_ID       = var.google_client_id
+      ADMIN_EMAILS           = var.admin_emails
+      SITE_BUCKET            = aws_s3_bucket.website.id
+      CF_DISTRIBUTION_ID     = aws_cloudfront_distribution.website_distribution.id
     }
   }
 }
@@ -328,7 +351,7 @@ resource "aws_apigatewayv2_api" "stagehopper" {
 
   cors_configuration {
     allow_origins     = ["https://${var.domain_name}"]
-    allow_methods     = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow_methods     = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     allow_headers     = ["Content-Type"]
     allow_credentials = true
     max_age           = 300
@@ -369,6 +392,36 @@ resource "aws_apigatewayv2_route" "delete_selections_self" {
 resource "aws_apigatewayv2_route" "list_my_rooms" {
   api_id    = aws_apigatewayv2_api.stagehopper.id
   route_key = "POST /api/stagehopper/users/me/rooms"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_me" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "POST /api/stagehopper/admin/me"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_put_festivals" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "PUT /api/stagehopper/admin/festivals"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_festival_image_upload" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "POST /api/stagehopper/admin/festivals/{id}/image-upload"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_festival_timetable_import" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "POST /api/stagehopper/admin/festivals/{id}/timetable-import"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_festival_timetable_patch" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "PATCH /api/stagehopper/admin/festivals/{id}/timetable"
   target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
 }
 

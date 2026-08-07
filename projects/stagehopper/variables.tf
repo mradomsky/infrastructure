@@ -34,3 +34,10 @@ variable "google_client_id" {
   sensitive   = true
   default     = ""
 }
+
+variable "admin_emails" {
+  description = "Comma-separated Google-verified emails allowed to use the admin console"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

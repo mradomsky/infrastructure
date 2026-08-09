@@ -293,6 +293,16 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
         Resource = "${aws_s3_bucket.website.arn}/data/*"
       },
       {
+        # Without ListBucket, S3 answers a GET/HEAD on a *missing* key with 403, not
+        # 404. The write-once timetable import HEADs data/timetable-{id}.json to check
+        # it doesn't exist yet; a 403 there is indistinguishable from a real error and
+        # 500s the import. ListBucket makes the missing-key case a clean 404.
+        Sid      = "AdminDataListBucket"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.website.arn
+      },
+      {
         Sid      = "AdminDataInvalidate"
         Effect   = "Allow"
         Action   = ["cloudfront:CreateInvalidation"]

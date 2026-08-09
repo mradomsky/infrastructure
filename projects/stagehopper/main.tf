@@ -46,6 +46,21 @@ resource "aws_s3_bucket_public_access_block" "website_access_block" {
   restrict_public_buckets = true
 }
 
+# Admin cover-image uploads PUT straight from the browser to S3 via a presigned URL,
+# so the bucket must allow cross-origin PUT from the site origin. Everything the site
+# reads is served through CloudFront (same-origin), so only the upload path needs CORS.
+resource "aws_s3_bucket_cors_configuration" "website" {
+  bucket = aws_s3_bucket.website.id
+
+  cors_rule {
+    allowed_origins = ["https://${var.domain_name}"]
+    allowed_methods = ["PUT"]
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
 # ============================================================
 # CloudFront — OAC + distribution
 # ============================================================

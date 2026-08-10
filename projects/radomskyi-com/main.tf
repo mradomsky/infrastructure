@@ -44,7 +44,13 @@ resource "aws_cloudfront_distribution" "website_distribution" {
   enabled             = true
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
-  aliases             = [var.domain_name]
+
+  aliases = [
+    var.dev_domain_name,
+    "www.${var.dev_domain_name}",
+    var.domain_name,
+    "www.${var.domain_name}"
+  ]
 
   origin {
     domain_name              = aws_s3_bucket.website.bucket_regional_domain_name
@@ -58,6 +64,11 @@ resource "aws_cloudfront_distribution" "website_distribution" {
     target_origin_id       = "s3-website"
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.redirect.arn
+    }
 
     forwarded_values {
       query_string = false
@@ -91,7 +102,7 @@ resource "aws_cloudfront_distribution" "website_distribution" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = var.acm_certificate_arn
+    acm_certificate_arn      = aws_acm_certificate_validation.site.certificate_arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }

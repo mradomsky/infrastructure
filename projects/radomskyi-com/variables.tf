@@ -11,9 +11,15 @@ variable "environment" {
 }
 
 variable "domain_name" {
-  description = "Domain name for the website"
+  description = "Legacy domain name (redirect source, kept alive indefinitely)"
   type        = string
   default     = "radomskyi.com"
+}
+
+variable "dev_domain_name" {
+  description = "New canonical domain name for the website"
+  type        = string
+  default     = "radomsky.dev"
 }
 
 variable "bucket_name" {
@@ -22,9 +28,4 @@ variable "bucket_name" {
   default     = "radomskyi-com-website"
 }
 
-variable "acm_certificate_arn" {
-  description = "ACM certificate ARN in us-east-1 for the CloudFront distribution"
-  type        = string
-  default     = "arn:aws:acm:us-east-1:543292785457:certificate/19d0ecff-5d15-4941-8720-000adc305c7b"
-}
 

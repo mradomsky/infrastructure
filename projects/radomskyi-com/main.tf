@@ -3,7 +3,7 @@ resource "aws_s3_bucket" "website" {
   bucket = var.bucket_name
 
   tags = {
-    Name = "${var.domain_name}-website"
+    Name = "${var.com_domain_name}-website"
   }
 }
 
@@ -48,8 +48,8 @@ resource "aws_cloudfront_distribution" "website_distribution" {
   aliases = [
     var.dev_domain_name,
     "www.${var.dev_domain_name}",
-    var.domain_name,
-    "www.${var.domain_name}"
+    var.com_domain_name,
+    "www.${var.com_domain_name}"
   ]
 
   origin {

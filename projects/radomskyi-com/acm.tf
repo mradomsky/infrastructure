@@ -7,8 +7,8 @@ resource "aws_acm_certificate" "site" {
 
   subject_alternative_names = [
     "www.${var.dev_domain_name}",
-    var.domain_name,
-    "www.${var.domain_name}"
+    var.com_domain_name,
+    "www.${var.com_domain_name}"
   ]
 
   lifecycle {

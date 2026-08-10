@@ -11,7 +11,7 @@ resource "aws_route53_zone" "dev" {
 # stagehopper/spacetraders subdomains). Reference it read-only so we can add
 # the new certificate's validation records without adopting sibling records.
 data "aws_route53_zone" "com" {
-  name         = "${var.domain_name}."
+  name         = "${var.com_domain_name}."
   private_zone = false
 }
 
@@ -46,8 +46,8 @@ locals {
     "dev-apex-aaaa" = { zone = aws_route53_zone.dev.zone_id, name = var.dev_domain_name, type = "AAAA" }
     "dev-www-a"     = { zone = aws_route53_zone.dev.zone_id, name = "www.${var.dev_domain_name}", type = "A" }
     "dev-www-aaaa"  = { zone = aws_route53_zone.dev.zone_id, name = "www.${var.dev_domain_name}", type = "AAAA" }
-    "com-www-a"     = { zone = data.aws_route53_zone.com.zone_id, name = "www.${var.domain_name}", type = "A" }
-    "com-www-aaaa"  = { zone = data.aws_route53_zone.com.zone_id, name = "www.${var.domain_name}", type = "AAAA" }
+    "com-www-a"     = { zone = data.aws_route53_zone.com.zone_id, name = "www.${var.com_domain_name}", type = "A" }
+    "com-www-aaaa"  = { zone = data.aws_route53_zone.com.zone_id, name = "www.${var.com_domain_name}", type = "AAAA" }
   }
 }
 

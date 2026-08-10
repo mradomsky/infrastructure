@@ -10,7 +10,7 @@ variable "environment" {
   default     = "dev"
 }
 
-variable "domain_name" {
+variable "com_domain_name" {
   description = "Legacy domain name (redirect source, kept alive indefinitely)"
   type        = string
   default     = "radomskyi.com"

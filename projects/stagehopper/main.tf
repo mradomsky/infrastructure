@@ -286,10 +286,10 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
           "s3:PutObject",
           "s3:HeadObject",
         ]
-        # Covers data/festivals.json, data/timetable-{id}.json, and
-        # data/festival-images/* — the presigned image upload is signed with this
-        # role's credentials, so it needs PutObject even though the browser is
-        # what actually performs the PUT.
+        # Covers data/festivals.json, data/timetable-{id}.json,
+        # data/festival-images/* and data/festival-maps/* — the presigned uploads are
+        # signed with this role's credentials, so it needs PutObject even though the
+        # browser is what actually performs the PUT.
         Resource = "${aws_s3_bucket.website.arn}/data/*"
       },
       {
@@ -328,8 +328,17 @@ resource "aws_lambda_function" "stagehopper" {
   filename      = "${path.module}/lambda_seed.zip"
   timeout       = 10
 
+  # GOOGLE_CLIENT_ID and ADMIN_EMAILS are secrets injected at apply time; they have
+  # empty-string defaults so a plan/apply run without them doesn't error. Ignoring
+  # them here means such a run also can't silently blank them in the live function —
+  # a secret-less `apply` once wiped auth in prod. They're set out-of-band and persist.
   lifecycle {
-    ignore_changes = [filename, source_code_hash]
+    ignore_changes = [
+      filename,
+      source_code_hash,
+      environment[0].variables["GOOGLE_CLIENT_ID"],
+      environment[0].variables["ADMIN_EMAILS"],
+    ]
   }
 
   environment {
@@ -439,6 +448,12 @@ resource "aws_apigatewayv2_route" "admin_put_festivals" {
 resource "aws_apigatewayv2_route" "admin_festival_image_upload" {
   api_id    = aws_apigatewayv2_api.stagehopper.id
   route_key = "POST /api/stagehopper/admin/festivals/{id}/image-upload"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+resource "aws_apigatewayv2_route" "admin_festival_map_upload" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "POST /api/stagehopper/admin/festivals/{id}/map-upload"
   target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
 }
 

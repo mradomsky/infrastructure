@@ -26,3 +26,17 @@ provider "aws" {
     }
   }
 }
+
+# CloudFront ACM certificates and the Route 53 Domains API both live in us-east-1.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Environment = var.environment
+      Project     = "radomskyi-com"
+      Terraform   = "true"
+    }
+  }
+}

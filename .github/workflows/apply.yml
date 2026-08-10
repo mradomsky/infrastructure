@@ -1,0 +1,55 @@
+name: terraform apply
+
+# Manual only. After a PR is reviewed and merged into main, trigger this from the
+# Actions tab (or `gh workflow run apply.yml -f stack=projects/stagehopper`) to apply
+# that stack. Nothing applies automatically on merge — a human always presses go.
+#
+# bootstrap is intentionally absent: it manages the OIDC provider and these very CI
+# roles, so it stays applied from a workstation to avoid a run that breaks its own trust.
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: Stack to apply
+        required: true
+        type: choice
+        options:
+          - shared
+          - projects/radomskyi-com
+          - projects/stagehopper
+          - projects/spacetraders
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+  # Trust is restricted to refs/heads/main, so this assume only succeeds when the
+  # workflow is dispatched against main (the default), not a feature branch.
+  APPLY_ROLE_ARN: arn:aws:iam::543292785457:role/github-actions-terraform-apply
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.stack }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.13.0'
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.APPLY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: init
+        run: terraform init -input=false
+
+      # Locking is on: unlike the plan role, this role can write the S3 lockfile.
+      - name: apply
+        run: terraform apply -input=false -auto-approve

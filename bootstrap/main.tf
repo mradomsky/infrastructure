@@ -115,10 +115,58 @@ resource "aws_iam_role_policy_attachment" "github_plan_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
+# ---------------------------------------------------------------------------
+# GitHub Actions OIDC — apply role for the manually-triggered `terraform apply`
+# workflow (.github/workflows/apply.yml, workflow_dispatch only).
+#
+# Trust is restricted to the `main` branch ref: a workflow_dispatch run on main
+# gets sub `repo:mradomsky/infrastructure:ref:refs/heads/main`, so a run from any
+# PR/feature branch cannot assume this role. It holds write permissions and can
+# take the state lock (unlike the read-only plan role), so apply runs with locking.
+# ---------------------------------------------------------------------------
+
+data "aws_iam_policy_document" "github_apply_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:mradomsky/infrastructure:ref:refs/heads/main"]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_apply" {
+  name               = "github-actions-terraform-apply"
+  assume_role_policy = data.aws_iam_policy_document.github_apply_trust.json
+}
+
+resource "aws_iam_role_policy_attachment" "github_apply_admin" {
+  role       = aws_iam_role.github_apply.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
 output "tfstate_bucket" {
   value = aws_s3_bucket.tfstate.id
 }
 
 output "github_plan_role_arn" {
   value = aws_iam_role.github_plan.arn
+}
+
+output "github_apply_role_arn" {
+  value = aws_iam_role.github_apply.arn
 }

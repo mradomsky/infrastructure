@@ -102,9 +102,14 @@ data "aws_iam_policy_document" "github_plan_trust" {
       # environment. Once this repo is public, the sub claim is the trust boundary,
       # so it must not be broader than what CI actually uses. plan.yml additionally
       # skips forked PRs (see its job-level `if`), so a fork cannot even trigger a run.
+      #
+      # V-M-Pioneer-Trading/infrastructure was removed from this list: its CI runs
+      # `terraform init -backend=false` + `validate` only and never assumes an AWS
+      # role, so the old `repo:V-M-Pioneer-Trading/infrastructure:*` entry was an
+      # unused wildcard grant of account-wide read. If that repo ever needs real
+      # plans, re-add it scoped to `:pull_request` (with the same fork-PR guard).
       values = [
         "repo:mradomsky/infrastructure:pull_request",
-        "repo:V-M-Pioneer-Trading/infrastructure:*"
       ]
     }
   }
@@ -193,6 +198,58 @@ resource "aws_iam_role" "github_apply" {
 resource "aws_iam_role_policy_attachment" "github_apply_admin" {
   role       = aws_iam_role.github_apply.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+# ---------------------------------------------------------------------------
+# GitHub Actions OIDC — website/Lambda deploy role for the app repos
+#
+# Pre-existed this repo (created by hand) and was previously unmanaged: project
+# stacks only referenced it via `data "aws_iam_role"` and attached deploy
+# policies to it, while its trust policy — `repo:mradomsky/*:*`, i.e. ANY repo
+# under the account, any ref — lived nowhere in code. Adopted into state with
+# `terraform import github-website-deployment-worker` (one-off, already done)
+# so the trust is reviewable and scoped to the exact CI contexts that deploy:
+#   - mradomsky/stagehopper:   release tags (`v*`) + workflow_dispatch re-runs
+#     from main (.github/workflows/deploy.yml in that repo)
+#   - mradomsky/radomskyi.com: push to main
+#
+# The per-project deploy policies stay attached from the project stacks
+# (projects/stagehopper, which grants S3 sync, CloudFront invalidation and
+# lambda:UpdateFunctionCode) — this block owns only the role and its trust.
+# ---------------------------------------------------------------------------
+
+data "aws_iam_policy_document" "github_website_deploy_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      values = [
+        "repo:mradomsky/stagehopper:ref:refs/tags/v*",
+        "repo:mradomsky/stagehopper:ref:refs/heads/main",
+        "repo:mradomsky/radomskyi.com:ref:refs/heads/main",
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_website_deploy" {
+  name               = "github-website-deployment-worker"
+  description        = "GitHub Actions CI deploy role for the website/app repos (stagehopper, radomskyi.com)"
+  assume_role_policy = data.aws_iam_policy_document.github_website_deploy_trust.json
 }
 
 output "tfstate_bucket" {

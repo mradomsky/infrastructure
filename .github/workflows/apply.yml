@@ -36,13 +36,16 @@ jobs:
       run:
         working-directory: ${{ inputs.stack }}
     steps:
-      - uses: actions/checkout@v4
+      # All actions are pinned to commit SHAs, not tags: this job assumes a role with
+      # AdministratorAccess, so a hijacked action tag would mean full account takeover.
+      # Dependabot (.github/dependabot.yml) keeps the pins current.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: '1.13.0'
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ env.APPLY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}

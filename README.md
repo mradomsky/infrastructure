@@ -37,8 +37,11 @@ projects/
 - PR CI runs `terraform fmt -check -recursive`, `terraform init`, `terraform validate`, and
   `terraform plan -lock=false` for `bootstrap/`, `shared/`, `projects/radomskyi-com`,
   `projects/stagehopper`, and `projects/spacetraders`
-- OIDC trust on bootstrap plan role allows both `mradomsky/infrastructure` and
-  `V-M-Pioneer-Trading/infrastructure`
+- OIDC trust on the bootstrap plan role is scoped to `mradomsky/infrastructure:pull_request`
+  only. (`V-M-Pioneer-Trading/infrastructure` was removed: its CI validates without a backend
+  and never assumes an AWS role.)
+- The website deploy role `github-website-deployment-worker` is managed in `bootstrap/`,
+  with trust scoped to stagehopper release tags and radomskyi.com main pushes
 
 ## Apply
 

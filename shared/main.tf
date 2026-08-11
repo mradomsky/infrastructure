@@ -13,6 +13,13 @@ data "aws_ssm_parameter" "amazon_linux_2023_ami" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
 }
 
+# CloudFront's origin-facing IP ranges, maintained by AWS. Used by the security
+# group below so the containers on this host are reachable only through the
+# distributions that front them.
+data "aws_ec2_managed_prefix_list" "cloudfront_origin_facing" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
 locals {
   default_subnet_id = sort(data.aws_subnets.default.ids)[0]
   exposed_tcp_ports = length(var.allowed_ingress_cidrs) == 0 ? [] : toset(var.allowed_tcp_ports)
@@ -80,6 +87,29 @@ resource "aws_security_group" "shared_ec2" {
   description = "Shared EC2 host for Docker workloads"
   vpc_id      = data.aws_vpc.default.id
 
+  # The only standing ingress: CloudFront. The spacetraders stack fronts the
+  # navigation/agent/fleet/automation services running on this host with a
+  # CloudFront distribution, so the host must not be reachable directly — an
+  # attacker who knows the Elastic IP would otherwise bypass CloudFront and hit
+  # the backends unfiltered.
+  #
+  # This rule was created by hand in the console and existed only there. Because
+  # the block below produced no ingress blocks when `allowed_tcp_ports` is empty,
+  # the provider treated ingress as unmanaged and the rule stayed invisible to
+  # code — one variable change away from being replaced by plain CIDR rules.
+  # Encoding it here makes it reviewable and enforced. The port range spans the
+  # service ports assigned by the sibling backend stacks.
+  ingress {
+    description     = "Allow navigation/agent/fleet-service traffic from CloudFront only."
+    from_port       = 80
+    to_port         = 8080
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin_facing.id]
+  }
+
+  # Optional extra exposure for ad-hoc/debug work, off by default. Anything added
+  # here is reachable from the public internet, so prefer SSM Session Manager
+  # (the instance profile already allows it) over opening a port.
   dynamic "ingress" {
     for_each = local.exposed_tcp_ports
 
@@ -116,6 +146,20 @@ resource "aws_instance" "shared_ec2" {
     systemctl enable --now docker
     usermod -aG docker ec2-user
   EOF
+
+  # The AMI data source above tracks the *latest* Amazon Linux 2023 image, so it
+  # changes whenever AWS publishes a new one — and `ami` forces replacement. Left
+  # unignored, a routine `terraform apply` (including one dispatched from the
+  # Actions tab) would destroy this host and every container on it, taking the
+  # spacetraders backends down with it.
+  #
+  # Ignoring it pins the instance to the AMI it was built with. OS upgrades are a
+  # deliberate act: patch in place with `dnf update`, or to move to a new image,
+  # `terraform apply -replace=aws_instance.shared_ec2` at a chosen moment, after
+  # confirming the workloads on the host can be restored.
+  lifecycle {
+    ignore_changes = [ami]
+  }
 
   metadata_options {
     http_endpoint = "enabled"

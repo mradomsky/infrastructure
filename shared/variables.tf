@@ -28,6 +28,12 @@ variable "alert_email" {
   default     = "maxradomskyy@gmail.com"
 }
 
+variable "dns_zone_name" {
+  description = "Route53 hosted zone the on-host Caddy edge proxy manages ACME DNS-01 records in (for the spacetraders backend origin certificate)."
+  type        = string
+  default     = "radomskyi.com"
+}
+
 variable "root_volume_size_gib" {
   description = "Root volume size in GiB"
   type        = number

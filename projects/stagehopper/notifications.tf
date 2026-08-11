@@ -227,17 +227,14 @@ resource "aws_lambda_function" "stagehopper_notifier" {
   # value-less plan/apply doesn't error, ignore_changes so it can't silently blank
   # them — same contract as GOOGLE_CLIENT_ID on the API function).
   #
-  # VAPID_PRIVATE_KEY is listed but no longer set anywhere in this config. That is
-  # deliberate and temporary: ignoring a key that config does not declare leaves the
-  # live value in place, so the currently-deployed notifier keeps working while it
-  # still reads the environment. Drop this line once the SSM-reading notifier is
-  # released (mradomsky/stagehopper#80) and the next apply will remove the variable
-  # from the function — after which the key is no longer written to state.
+  # VAPID_PRIVATE_KEY is deliberately absent from this list. The key is no longer a
+  # Lambda environment variable at all: the notifier resolves it from SSM at runtime,
+  # so nothing here should keep a stale copy alive on the function — or record one in
+  # state on the next refresh.
   lifecycle {
     ignore_changes = [
       filename,
       source_code_hash,
-      environment[0].variables["VAPID_PRIVATE_KEY"],
       environment[0].variables["VAPID_PUBLIC_KEY"],
       environment[0].variables["VAPID_SUBJECT"],
     ]

@@ -16,16 +16,6 @@ data "terraform_remote_state" "navigation_service" {
   }
 }
 
-# The shared secret proving a request came through *our* CloudFront distribution.
-# Created out-of-band as an SSM SecureString and read by the on-host Caddy proxy
-# too, so both sides use one source of truth. The value lands in this stack's
-# state (private bucket, 7-day noncurrent expiry) — acceptable, and rotatable if
-# it ever leaks. (The #32 issue suggested a TF_VAR; a single SSM source avoids
-# keeping the CloudFront header and Caddy's expected value manually in sync.)
-data "aws_ssm_parameter" "origin_verify" {
-  name = var.origin_verify_param_name
-}
-
 # ============================================================
 # S3 — static Vite build
 # ============================================================
@@ -100,9 +90,17 @@ resource "aws_cloudfront_distribution" "website_distribution" {
     # Proves the request came through our distribution. Caddy rejects anything
     # missing this header with 403, so a stranger's distribution pointed at the
     # host (the prefix list can't tell them apart) cannot reach the backends.
+    #
+    # Supplied at apply via TF_VAR_origin_verify_secret, sourced from the same SSM
+    # SecureString Caddy reads (SSM stays the source of truth). It is NOT read
+    # here with a data source on purpose: that read happens at plan time, and the
+    # read-only CI plan role is deliberately walled off from secrets (no
+    # kms:Decrypt). The empty default lets plan run without the value; apply
+    # supplies it. The value lands in this stack's private state (7-day noncurrent
+    # expiry) — acceptable, and rotatable if it leaks.
     custom_header {
       name  = "X-Origin-Verify"
-      value = data.aws_ssm_parameter.origin_verify.value
+      value = var.origin_verify_secret
     }
   }
 

@@ -53,6 +53,18 @@ jobs:
       - name: init
         run: terraform init -input=false
 
+      # The spacetraders CloudFront origin sends X-Origin-Verify to the Caddy edge
+      # proxy. Its value is not read via a Terraform data source — that read would
+      # happen at plan time and the read-only plan role is deliberately denied
+      # secrets. The admin apply role can decrypt, so source it from SSM here and
+      # pass it as TF_VAR only for this stack. Masked so it never prints in logs.
+      - name: source origin-verify secret
+        if: inputs.stack == 'projects/spacetraders'
+        run: |
+          SECRET=$(aws ssm get-parameter --name spacetraders-origin-verify --with-decryption --query Parameter.Value --output text)
+          echo "::add-mask::$SECRET"
+          echo "TF_VAR_origin_verify_secret=$SECRET" >> "$GITHUB_ENV"
+
       # Locking is on: unlike the plan role, this role can write the S3 lockfile.
       - name: apply
         run: terraform apply -input=false -auto-approve

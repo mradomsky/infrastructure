@@ -69,9 +69,13 @@ This closes two gaps the prefix list alone could not:
 - **Origin authentication.** The prefix list covers *all* of CloudFront, so any
   AWS customer's distribution could otherwise be pointed at the Elastic IP and
   reach the backends. CloudFront now injects a shared secret as the
-  `X-Origin-Verify` origin header (sourced from an SSM `SecureString`, single
-  source of truth for both CloudFront and Caddy); Caddy returns 403 to any
-  request that lacks it, so a stranger's distribution cannot use our origin.
+  `X-Origin-Verify` origin header; Caddy returns 403 to any request that lacks
+  it, so a stranger's distribution cannot use our origin. The secret lives in an
+  SSM `SecureString` (the source of truth): Caddy reads it directly at runtime,
+  and the CloudFront header value is supplied at apply via `TF_VAR` sourced from
+  that same parameter. It is deliberately *not* read with a Terraform data
+  source, because that read would happen at plan time and the read-only plan role
+  is walled off from secrets.
 
 With Caddy the sole reachable service, the security-group ingress rule is narrowed
 from the old `80-8080` span to `443` only, keeping the CloudFront prefix list as

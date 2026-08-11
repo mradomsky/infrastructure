@@ -14,8 +14,10 @@ data "aws_ssm_parameter" "amazon_linux_2023_ami" {
 }
 
 # CloudFront's origin-facing IP ranges, maintained by AWS. Used by the security
-# group below so the containers on this host are reachable only through the
-# distributions that front them.
+# group below so the containers on this host cannot be reached directly by
+# anything that resolves the Elastic IP. Note: the list covers ALL of CloudFront,
+# not just our distributions — authenticating the distribution itself (secret
+# origin header) is tracked in issue #32.
 data "aws_ec2_managed_prefix_list" "cloudfront_origin_facing" {
   name = "com.amazonaws.global.cloudfront.origin-facing"
 }

@@ -13,18 +13,18 @@ data "aws_ssm_parameter" "amazon_linux_2023_ami" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
 }
 
-# CloudFront's origin-facing IP ranges, maintained by AWS. Used by the security
-# group below so the containers on this host cannot be reached directly by
-# anything that resolves the Elastic IP. Note: the list covers ALL of CloudFront,
-# not just our distributions — authenticating the distribution itself (secret
-# origin header) is tracked in issue #32.
-data "aws_ec2_managed_prefix_list" "cloudfront_origin_facing" {
-  name = "com.amazonaws.global.cloudfront.origin-facing"
-}
-
 locals {
   default_subnet_id = sort(data.aws_subnets.default.ids)[0]
   exposed_tcp_ports = length(var.allowed_ingress_cidrs) == 0 ? [] : toset(var.allowed_tcp_ports)
+
+  # One standalone ingress rule per (port, CIDR) pair for the optional debug
+  # exposure. Empty by default, so no debug rules exist unless explicitly asked
+  # for. Standalone rather than an inline `dynamic "ingress"` block on purpose —
+  # see the security group below.
+  debug_ingress_rules = {
+    for pair in setproduct(tolist(local.exposed_tcp_ports), var.allowed_ingress_cidrs) :
+    "${pair[0]}-${pair[1]}" => { port = pair[0], cidr = pair[1] }
+  }
 }
 
 resource "aws_iam_role" "shared_ec2" {
@@ -89,40 +89,19 @@ resource "aws_security_group" "shared_ec2" {
   description = "Shared EC2 host for Docker workloads"
   vpc_id      = data.aws_vpc.default.id
 
-  # The only standing ingress: CloudFront. The spacetraders stack fronts the
-  # navigation/agent/fleet/automation services running on this host with a
-  # CloudFront distribution, so the host must not be reachable directly — an
-  # attacker who knows the Elastic IP would otherwise bypass CloudFront and hit
-  # the backends unfiltered.
+  # Ingress is deliberately NOT declared inline here. An aws_security_group with
+  # any inline `ingress` block becomes authoritative over ingress and deletes
+  # every rule it does not itself declare on the next apply. The standing
+  # CloudFront rule (ports 80-8080 from the origin-facing prefix list) is owned
+  # by the V-M-Pioneer-Trading/infrastructure navigation-service stack, as a
+  # standalone aws_vpc_security_group_ingress_rule. Declaring it inline here too
+  # meant two stacks fought over one rule — and an apply of this stack would try
+  # to recreate a rule that already exists, or strip the one the other stack
+  # created. Keeping this SG non-authoritative over ingress (only standalone
+  # rules, below and cross-repo) lets both stacks coexist safely.
   #
-  # This rule was created by hand in the console and existed only there. Because
-  # the block below produced no ingress blocks when `allowed_tcp_ports` is empty,
-  # the provider treated ingress as unmanaged and the rule stayed invisible to
-  # code — one variable change away from being replaced by plain CIDR rules.
-  # Encoding it here makes it reviewable and enforced. The port range spans the
-  # service ports assigned by the sibling backend stacks.
-  ingress {
-    description     = "Allow navigation/agent/fleet-service traffic from CloudFront only."
-    from_port       = 80
-    to_port         = 8080
-    protocol        = "tcp"
-    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin_facing.id]
-  }
-
-  # Optional extra exposure for ad-hoc/debug work, off by default. Anything added
-  # here is reachable from the public internet, so prefer SSM Session Manager
-  # (the instance profile already allows it) over opening a port.
-  dynamic "ingress" {
-    for_each = local.exposed_tcp_ports
-
-    content {
-      description = "Container TCP ${ingress.value}"
-      from_port   = ingress.value
-      to_port     = ingress.value
-      protocol    = "tcp"
-      cidr_blocks = var.allowed_ingress_cidrs
-    }
-  }
+  # Optional ad-hoc/debug exposure lives in aws_vpc_security_group_ingress_rule
+  # ("debug") below, also standalone for the same reason.
 
   egress {
     description = "Allow all outbound traffic"
@@ -131,6 +110,22 @@ resource "aws_security_group" "shared_ec2" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+# Optional extra exposure for ad-hoc/debug work, off by default (empty unless
+# allowed_ingress_cidrs is set). Standalone so this SG never becomes ingress-
+# authoritative — see the security group's ingress comment above. Anything opened
+# here is reachable from the public internet, so prefer SSM Session Manager (the
+# instance profile already allows it) over opening a port.
+resource "aws_vpc_security_group_ingress_rule" "debug" {
+  for_each = local.debug_ingress_rules
+
+  security_group_id = aws_security_group.shared_ec2.id
+  description       = "Container TCP ${each.value.port} (ad-hoc/debug)"
+  from_port         = each.value.port
+  to_port           = each.value.port
+  ip_protocol       = "tcp"
+  cidr_ipv4         = each.value.cidr
 }
 
 resource "aws_instance" "shared_ec2" {

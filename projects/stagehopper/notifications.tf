@@ -133,8 +133,9 @@ resource "aws_iam_role_policy" "stagehopper_notifier" {
         Sid    = "UsersScan"
         Effect = "Allow"
         # Scans the users table for notification-enabled users and reads each one's `rooms`
-        # map off the same row (no separate membership lookup). The notifier never writes it.
-        Action   = ["dynamodb:Scan", "dynamodb:GetItem"]
+        # map off the same row (no separate membership lookup). Scan is the only action the
+        # notifier uses here — it never GetItems or writes the users table.
+        Action   = ["dynamodb:Scan"]
         Resource = aws_dynamodb_table.stagehopper_users.arn
       },
       {

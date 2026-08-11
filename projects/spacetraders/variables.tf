@@ -27,3 +27,9 @@ variable "bucket_name" {
   type        = string
   default     = "spacetraders-radomskyi-com"
 }
+
+variable "origin_verify_param_name" {
+  description = "SSM Parameter Store name (SecureString) holding the shared X-Origin-Verify secret CloudFront sends to the Caddy origin. Created out-of-band; the same parameter is read by the VnM caddy stack."
+  type        = string
+  default     = "spacetraders-origin-verify"
+}

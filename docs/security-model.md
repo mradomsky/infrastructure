@@ -42,26 +42,40 @@ its own trust and lock everyone out.
 The shared EC2 host runs the spacetraders backends in Docker. Its security group
 allows ingress only from AWS's `com.amazonaws.global.cloudfront.origin-facing`
 managed prefix list, so nothing that resolves the Elastic IP can connect to the
-services directly. Note the limit of that rule: the prefix list covers *all* of
-CloudFront, so any AWS customer's distribution — not just ours — can be pointed
-at the host and reach the backend ports. Authenticating that requests came
-through *our* distributions (a shared-secret origin header verified at the host)
-is part of [#32](https://github.com/mradomsky/infrastructure/issues/32).
-Administrative access is via SSM Session Manager (the instance profile grants
-it); there is no open SSH port. IMDSv2 is required, which blunts
+services directly. Administrative access is via SSM Session Manager (the instance
+profile grants it); there is no open SSH port. IMDSv2 is required, which blunts
 SSRF-to-credential-theft against anything on the host.
 
 Every S3 bucket blocks public access and is served through CloudFront with an
 Origin Access Control; the bucket policies grant `s3:GetObject` only to the
 specific distribution ARN.
 
-### Known gap: plaintext between CloudFront and the origin
+### CloudFront-to-origin: TLS and origin authentication
 
-The spacetraders backend origins use `origin_protocol_policy = "http-only"` and
-forward the `Authorization` header, so bearer tokens travel unencrypted between
-CloudFront and the EC2 host. Closing this (TLS termination on the host, plus the
-origin-authentication header above) is tracked in
-[#32](https://github.com/mradomsky/infrastructure/issues/32).
+CloudFront reaches the backends over **HTTPS on 443** through a single origin
+(`origin_protocol_policy = "https-only"`). On the host, a **Caddy** reverse proxy
+(in `V-M-Pioneer-Trading/infrastructure`, `caddy/`) terminates TLS with a
+publicly-trusted Let's Encrypt certificate for
+`spacetraders-backend.radomskyi.com` and routes each `/api/<service>/*` path to
+its container. Because the security group admits only CloudFront (no port 80 for
+Let's Encrypt's HTTP-01 validators), the certificate is issued via the **ACME
+DNS-01** challenge against Route53; the instance role carries the scoped Route53
+permissions and credentials come from the instance profile.
+
+This closes two gaps the prefix list alone could not:
+
+- **Encryption.** Bearer tokens in the forwarded `Authorization` header no longer
+  travel in plaintext between the CloudFront edge and the host.
+- **Origin authentication.** The prefix list covers *all* of CloudFront, so any
+  AWS customer's distribution could otherwise be pointed at the Elastic IP and
+  reach the backends. CloudFront now injects a shared secret as the
+  `X-Origin-Verify` origin header (sourced from an SSM `SecureString`, single
+  source of truth for both CloudFront and Caddy); Caddy returns 403 to any
+  request that lacks it, so a stranger's distribution cannot use our origin.
+
+With Caddy the sole reachable service, the security-group ingress rule is narrowed
+from the old `80-8080` span to `443` only, keeping the CloudFront prefix list as
+the source. Rotate the `X-Origin-Verify` value if it ever leaks.
 
 ## Secrets
 

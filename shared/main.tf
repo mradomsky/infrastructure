@@ -79,6 +79,48 @@ resource "aws_iam_role_policy" "shared_ec2_ssm_parameters" {
   })
 }
 
+# The hosted zone the on-host Caddy edge proxy issues its origin certificate in.
+# CloudFront requires a publicly-trusted cert on the HTTPS origin, and the
+# security group admits only CloudFront (no port 80 for ACME HTTP-01), so Caddy
+# uses the ACME DNS-01 challenge against Route53. Credentials come from this
+# instance profile — no static AWS keys on the host.
+data "aws_route53_zone" "primary" {
+  name = var.dns_zone_name
+}
+
+resource "aws_iam_role_policy" "shared_ec2_route53_dns01" {
+  name = "${var.instance_name}-route53-dns01"
+  role = aws_iam_role.shared_ec2.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # Record changes are scoped to the single managed zone.
+        Sid    = "ChangeRecordsInManagedZone"
+        Effect = "Allow"
+        Action = [
+          "route53:ChangeResourceRecordSets",
+          "route53:ListResourceRecordSets",
+        ]
+        Resource = data.aws_route53_zone.primary.arn
+      },
+      {
+        # These two actions do not support resource-level scoping.
+        # GetChange polls an opaque change ID; ListHostedZonesByName is how the
+        # caddy-dns/route53 module discovers the zone ID at runtime.
+        Sid    = "DiscoverZoneAndPollChanges"
+        Effect = "Allow"
+        Action = [
+          "route53:GetChange",
+          "route53:ListHostedZonesByName",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "aws_iam_instance_profile" "shared_ec2" {
   name = "${var.instance_name}-profile"
   role = aws_iam_role.shared_ec2.name

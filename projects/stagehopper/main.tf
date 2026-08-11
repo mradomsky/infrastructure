@@ -562,6 +562,8 @@ resource "aws_route53_record" "stagehopper" {
 # GitHub Actions IAM — CI deployment from mradomsky/stagehopper
 # ============================================================
 
+# Role + trust policy are managed in bootstrap/ (scoped to the app repos' exact
+# CI contexts); this stack only attaches the stagehopper deploy permissions.
 data "aws_iam_role" "github_actions" {
   name = "github-website-deployment-worker"
 }

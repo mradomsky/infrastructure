@@ -334,8 +334,8 @@ resource "aws_route53_record" "spacetraders" {
 # ============================================================
 # GitHub Actions IAM — dedicated CI deployment role for
 # V-M-Pioneer-Trading/command-interface (not the shared
-# github-website-deployment-worker role, whose trust policy isn't
-# managed here and may not cover the V-M-Pioneer-Trading org)
+# github-website-deployment-worker role, which is managed in bootstrap/
+# and deliberately scoped to the mradomsky app repos only)
 # ============================================================
 
 data "aws_iam_openid_connect_provider" "github" {

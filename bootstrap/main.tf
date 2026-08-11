@@ -146,10 +146,11 @@ resource "aws_iam_role_policy" "github_plan_deny_secret_reads" {
         Sid    = "DenySsmSecureStringSecretReads"
         Effect = "Deny"
         Action = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
-        # The SecureString secrets only — extend this list when new ones are added
-        # (e.g. the VAPID key from stagehopper#75). Public /aws/service/* stays allowed.
+        # The SecureString secrets only — extend this list when new ones are added.
+        # Public /aws/service/* stays allowed.
         Resource = [
-          "arn:aws:ssm:*:*:parameter/navigation-service-ghcr-pat"
+          "arn:aws:ssm:*:*:parameter/navigation-service-ghcr-pat",
+          "arn:aws:ssm:*:*:parameter/stagehopper/*"
         ]
       }
     ]

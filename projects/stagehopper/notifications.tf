@@ -10,19 +10,37 @@
 # Code deploys are owned by that repo's CI via `aws lambda update-function-code`.
 # ============================================================
 
-# ---- Secrets (set out-of-band on the function, like GOOGLE_CLIENT_ID) ----
+# ---- VAPID configuration ----
+#
+# The private key is NOT a variable and never reaches Terraform: a value set as a
+# Lambda environment variable is recorded in state on every refresh, so it would
+# sit in plaintext in the state object and in each retained version of it
+# (`ignore_changes` hides the diff, not the read). The parameter is created out of
+# band as a SecureString and the notifier resolves it at runtime — see
+# `lambda/secrets.ts` in mradomsky/stagehopper:
+#
+#   aws ssm put-parameter --name /stagehopper/vapid-private-key \
+#     --type SecureString --value "<key>"
+#
+# The public key and subject stay plain variables: the browser receives both, so
+# there is nothing to protect and no reason to pay a cold-start SSM read.
 
-variable "vapid_private_key" {
-  description = "VAPID private key used by the notifier to sign Web Push requests"
+data "aws_caller_identity" "current" {}
+
+# KMS resource-based matching needs the key ARN, not the alias ARN.
+data "aws_kms_alias" "ssm" {
+  name = "alias/aws/ssm"
+}
+
+variable "vapid_private_key_param" {
+  description = "Name of the SSM SecureString holding the VAPID private key. The value never passes through Terraform."
   type        = string
-  sensitive   = true
-  default     = ""
+  default     = "/stagehopper/vapid-private-key"
 }
 
 variable "vapid_public_key" {
   description = "VAPID public key (also shipped to the client as VITE_VAPID_PUBLIC_KEY)"
   type        = string
-  sensitive   = true
   default     = ""
 }
 
@@ -162,6 +180,21 @@ resource "aws_iam_role_policy" "stagehopper_notifier" {
         Resource = "${aws_s3_bucket.website.arn}/data/*"
       },
       {
+        # The notifier resolves its Web Push signing key from Parameter Store at
+        # runtime so the value stays out of Terraform state. Decrypt is needed
+        # too: the parameter is a SecureString under the SSM default key.
+        Sid      = "VapidPrivateKeyRead"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.vapid_private_key_param}"
+      },
+      {
+        Sid      = "VapidPrivateKeyDecrypt"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = data.aws_kms_alias.ssm.target_key_arn
+      },
+      {
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
@@ -189,9 +222,16 @@ resource "aws_lambda_function" "stagehopper_notifier" {
   # Bursty: loops enabled users, reads their picks, sends each push. Longer than the API fn.
   timeout = 30
 
-  # VAPID keys are secrets injected out-of-band (empty-string defaults so a secret-less
-  # plan/apply doesn't error, ignore_changes so it can't silently blank them — same
-  # contract as GOOGLE_CLIENT_ID on the API function).
+  # The public key and subject are injected out-of-band (empty-string defaults so a
+  # value-less plan/apply doesn't error, ignore_changes so it can't silently blank
+  # them — same contract as GOOGLE_CLIENT_ID on the API function).
+  #
+  # VAPID_PRIVATE_KEY is listed but no longer set anywhere in this config. That is
+  # deliberate and temporary: ignoring a key that config does not declare leaves the
+  # live value in place, so the currently-deployed notifier keeps working while it
+  # still reads the environment. Drop this line once the SSM-reading notifier is
+  # released (mradomsky/stagehopper#80) and the next apply will remove the variable
+  # from the function — after which the key is no longer written to state.
   lifecycle {
     ignore_changes = [
       filename,
@@ -209,7 +249,7 @@ resource "aws_lambda_function" "stagehopper_notifier" {
       PUSH_SUBSCRIPTIONS_TABLE = aws_dynamodb_table.stagehopper_push_subscriptions.name
       NOTIF_DEDUP_TABLE        = aws_dynamodb_table.stagehopper_notif_dedup.name
       SITE_BUCKET              = aws_s3_bucket.website.id
-      VAPID_PRIVATE_KEY        = var.vapid_private_key
+      VAPID_PRIVATE_KEY_PARAM  = var.vapid_private_key_param
       VAPID_PUBLIC_KEY         = var.vapid_public_key
       VAPID_SUBJECT            = var.vapid_subject
     }

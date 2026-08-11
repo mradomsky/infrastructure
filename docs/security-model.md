@@ -73,29 +73,30 @@ carries an explicit `Deny` on reading those parameters and on
 `secretsmanager:GetSecretValue`, because an explicit deny overrides the allow in
 `ReadOnlyAccess`.
 
-### Known gap: Lambda secrets reach Terraform state
+### Lambda secrets and Terraform state
 
-The stagehopper functions receive `GOOGLE_CLIENT_ID`, `ADMIN_EMAILS` and the
-three `VAPID_*` values as Lambda environment variables. `ignore_changes`
-suppresses *diffs*, not *refresh*: Terraform still records the live values, so
-they sit in plaintext in the state object in `radomskyi-tfstate` and in its
-retained versions. Anything that can read that object can read the Web Push
-signing key.
+A value set as a Lambda environment variable is recorded in state on every
+refresh, so it sits in plaintext in the state object and in each retained version
+of it — `ignore_changes` suppresses the *diff*, not the *read*. The plan role
+cannot simply be denied access to the state bucket either, because
+`terraform plan` reads its own backend state. Keeping secrets out of state is
+therefore the fix, not blocking the read.
 
-The fix is for the functions to resolve their own secrets at runtime, exactly as
-the EC2 host already does — the environment holds a parameter *name*, and the
-value stays in SSM. That requires an application change first, so the order is:
+Of the values the stagehopper functions consume, only the VAPID private key is a
+credential. It now lives in SSM as a `SecureString` and the notifier resolves it
+at runtime (`lambda/secrets.ts` in `mradomsky/stagehopper`), caching it for the
+life of the execution environment; the function's environment carries only the
+parameter *name*.
 
-1. Create the parameters as `SecureString` with `aws ssm put-parameter`.
-2. In `mradomsky/stagehopper`, read them at cold start with `ssm:GetParameter`
-   and cache them for the container's lifetime.
-3. Here: grant each Lambda role `ssm:GetParameter` on its own parameters plus
-   `kms:Decrypt` on `alias/aws/ssm`, add the parameter ARNs to the plan role's
-   deny list, and delete the secret variables and environment entries.
-4. Rotate the VAPID keypair and the Google client secret. Rotation is required
-   regardless of the above: the current values are in state versions that
-   already exist, and removing them going forward does not unpublish them.
+The rest stay plain environment variables on purpose:
 
-Note that the plan role cannot simply be denied access to the state bucket —
-`terraform plan` reads its own backend state, so keeping the secrets out of state
-is the fix, not blocking the read.
+| Value | Why it stays |
+| --- | --- |
+| `GOOGLE_CLIENT_ID` | Public by design. OAuth client IDs ship to browsers; this app verifies ID tokens and uses no client secret. |
+| `VAPID_PUBLIC_KEY` | Sent to the browser to subscribe (`VITE_VAPID_PUBLIC_KEY`). |
+| `VAPID_SUBJECT` | A `mailto:` contact for the push service. |
+| `ADMIN_EMAILS` | Not a credential — the admin gate requires a Google-verified token, so knowing an address does not pass it. Worth moving only if the allowlist ever holds addresses that are not already public. |
+
+**The VAPID keypair must still be rotated.** The previous private key is present
+in state versions that already exist, and removing it going forward does not
+unpublish them. Rotating is what actually retires the exposed key.

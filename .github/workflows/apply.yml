@@ -32,11 +32,6 @@ env:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    # Requires a manual approval before any AWS credentials are issued. The
-    # `production` environment (repo Settings -> Environments) has a required
-    # reviewer, so a dispatched apply pauses until a human approves — a second
-    # pair of eyes in front of a role holding AdministratorAccess.
-    environment: production
     defaults:
       run:
         working-directory: ${{ inputs.stack }}

@@ -27,3 +27,10 @@ variable "bucket_name" {
   type        = string
   default     = "spacetraders-radomskyi-com"
 }
+
+variable "origin_verify_secret" {
+  description = "Shared X-Origin-Verify secret CloudFront sends to the Caddy origin. Supply at apply via TF_VAR_origin_verify_secret, sourced from the spacetraders-origin-verify SSM SecureString (the same value Caddy reads). Empty default so the read-only CI plan role never needs it; apply must set it."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

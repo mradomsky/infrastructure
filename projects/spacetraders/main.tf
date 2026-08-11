@@ -1,5 +1,9 @@
 # ============================================================
-# Cross-repo state — shared EC2 host + the three backend stacks
+# Cross-repo state — shared EC2 host
+#
+# Only navigation-service state is read now, for the backend host's Elastic IP.
+# Routing to the individual services moved to the on-host Caddy edge proxy, so the
+# per-service port outputs this stack used to read are no longer needed here.
 # ============================================================
 
 data "terraform_remote_state" "navigation_service" {
@@ -8,36 +12,6 @@ data "terraform_remote_state" "navigation_service" {
   config = {
     bucket = "radomskyi-tfstate"
     key    = "navigation-service/terraform.tfstate"
-    region = var.aws_region
-  }
-}
-
-data "terraform_remote_state" "agent_service" {
-  backend = "s3"
-
-  config = {
-    bucket = "radomskyi-tfstate"
-    key    = "agent-service/terraform.tfstate"
-    region = var.aws_region
-  }
-}
-
-data "terraform_remote_state" "fleet_service" {
-  backend = "s3"
-
-  config = {
-    bucket = "radomskyi-tfstate"
-    key    = "fleet-service/terraform.tfstate"
-    region = var.aws_region
-  }
-}
-
-data "terraform_remote_state" "automation_service" {
-  backend = "s3"
-
-  config = {
-    bucket = "radomskyi-tfstate"
-    key    = "automation-service/terraform.tfstate"
     region = var.aws_region
   }
 }
@@ -99,61 +73,34 @@ resource "aws_cloudfront_distribution" "website_distribution" {
     origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
   }
 
+  # Single HTTPS origin: the on-host Caddy edge proxy terminates TLS on 443 and
+  # routes each /api/<service>/* path to the right container. TLS replaces the old
+  # per-service plaintext http-only origins (one per port); Caddy owns the routing
+  # now, so path patterns — not distinct origins — decide the backend.
   origin {
     domain_name = aws_route53_record.backend_host.fqdn
-    origin_id   = "navigation-service"
+    origin_id   = "backend"
     custom_origin_config {
-      http_port              = data.terraform_remote_state.navigation_service.outputs.navigation_service_port
+      http_port              = 80
       https_port             = 443
-      origin_protocol_policy = "http-only"
+      origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
     }
-  }
 
-  origin {
-    domain_name = aws_route53_record.backend_host.fqdn
-    origin_id   = "agent-service"
-    custom_origin_config {
-      http_port              = data.terraform_remote_state.agent_service.outputs.agent_service_port
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
-  }
-
-  origin {
-    domain_name = aws_route53_record.backend_host.fqdn
-    origin_id   = "fleet-service"
-    custom_origin_config {
-      http_port              = data.terraform_remote_state.fleet_service.outputs.fleet_service_port
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
-  }
-
-  origin {
-    domain_name = aws_route53_record.backend_host.fqdn
-    origin_id   = "automation-service"
-    custom_origin_config {
-      http_port              = data.terraform_remote_state.automation_service.outputs.automation_service_port
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
-  }
-
-  # st-gateway is internal-only — this origin exists solely to serve its
-  # unauthenticated /api/st-gateway/health probe (see the ordered_cache_behavior
-  # below); no other path pattern routes here.
-  origin {
-    domain_name = aws_route53_record.backend_host.fqdn
-    origin_id   = "st-gateway"
-    custom_origin_config {
-      http_port              = data.terraform_remote_state.agent_service.outputs.gateway_port
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
+    # Proves the request came through our distribution. Caddy rejects anything
+    # missing this header with 403, so a stranger's distribution pointed at the
+    # host (the prefix list can't tell them apart) cannot reach the backends.
+    #
+    # Supplied at apply via TF_VAR_origin_verify_secret, sourced from the same SSM
+    # SecureString Caddy reads (SSM stays the source of truth). It is NOT read
+    # here with a data source on purpose: that read happens at plan time, and the
+    # read-only CI plan role is deliberately walled off from secrets (no
+    # kms:Decrypt). The empty default lets plan run without the value; apply
+    # supplies it. The value lands in this stack's private state (7-day noncurrent
+    # expiry) — acceptable, and rotatable if it leaks.
+    custom_header {
+      name  = "X-Origin-Verify"
+      value = var.origin_verify_secret
     }
   }
 
@@ -163,21 +110,22 @@ resource "aws_cloudfront_distribution" "website_distribution" {
   # command-interface's browser-side SystemStatus panel (health is
   # deliberately not under /v1 — see each service's health handler).
   dynamic "ordered_cache_behavior" {
-    for_each = {
-      "/api/navigation/v1/*"   = "navigation-service"
-      "/api/navigation/health" = "navigation-service"
-      "/api/agent/v1/*"        = "agent-service"
-      "/api/agent/health"      = "agent-service"
-      "/api/fleet/v1/*"        = "fleet-service"
-      "/api/fleet/health"      = "fleet-service"
-      "/api/automation/v1/*"   = "automation-service"
-      "/api/automation/health" = "automation-service"
-      "/api/st-gateway/health" = "st-gateway"
-    }
+    # All backend paths go to the single Caddy origin, which routes by prefix.
+    for_each = toset([
+      "/api/navigation/v1/*",
+      "/api/navigation/health",
+      "/api/agent/v1/*",
+      "/api/agent/health",
+      "/api/fleet/v1/*",
+      "/api/fleet/health",
+      "/api/automation/v1/*",
+      "/api/automation/health",
+      "/api/st-gateway/health",
+    ])
 
     content {
-      path_pattern           = ordered_cache_behavior.key
-      target_origin_id       = ordered_cache_behavior.value
+      path_pattern           = ordered_cache_behavior.value
+      target_origin_id       = "backend"
       viewer_protocol_policy = "redirect-to-https"
       allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
       cached_methods         = ["GET", "HEAD"]

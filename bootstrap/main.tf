@@ -65,6 +65,25 @@ resource "aws_s3_bucket_public_access_block" "tfstate" {
   restrict_public_buckets = true
 }
 
+# Old state versions are the rollback safety net, but they also retain every
+# secret that ever passed through state (the pre-rotation VAPID key lived in
+# them). Seven days covers any realistic rollback; after that, reap them so a
+# leaked value ages out instead of persisting indefinitely.
+resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
+  bucket = aws_s3_bucket.tfstate.id
+
+  rule {
+    id     = "expire-noncurrent-state-versions"
+    status = "Enabled"
+
+    filter {}
+
+    noncurrent_version_expiration {
+      noncurrent_days = 7
+    }
+  }
+}
+
 # ---------------------------------------------------------------------------
 # GitHub Actions OIDC — read-only role for `terraform plan` in CI
 #
@@ -125,10 +144,13 @@ resource "aws_iam_role_policy_attachment" "github_plan_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
-# Defence in depth: ReadOnlyAccess can read secret *values*, which a compromised plan
-# run must never do. An explicit Deny always overrides the managed Allow. Scoped so the
-# public AWS SSM parameter that `plan` genuinely reads
-# (data.aws_ssm_parameter.amazon_linux_2023_ami, under /aws/service/*) stays readable.
+# Defence in depth: ReadOnlyAccess can read secret *values* and application *data*
+# (its s3:Get* and dynamodb read actions cover objects and items, not just resource
+# configuration), none of which a compromised plan run must ever see. An explicit
+# Deny always overrides the managed Allow. Scoped so what `plan` genuinely reads
+# stays readable: the public AWS SSM parameter under /aws/service/*
+# (data.aws_ssm_parameter.amazon_linux_2023_ami) and the radomskyi-tfstate bucket
+# (the backend state itself).
 resource "aws_iam_role_policy" "github_plan_deny_secret_reads" {
   name = "github-actions-terraform-plan-deny-secrets"
   role = aws_iam_role.github_plan.name
@@ -151,6 +173,34 @@ resource "aws_iam_role_policy" "github_plan_deny_secret_reads" {
         Resource = [
           "arn:aws:ssm:*:*:parameter/navigation-service-ghcr-pat",
           "arn:aws:ssm:*:*:parameter/stagehopper/*"
+        ]
+      },
+      {
+        # User records: emails, room lists, notification settings, push endpoints.
+        # Plan only reads table *configuration* (DescribeTable etc.), never items.
+        Sid    = "DenyDynamoDbDataReads"
+        Effect = "Deny"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:BatchGetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:PartiQLSelect",
+        ]
+        Resource = "arn:aws:dynamodb:*:*:table/stagehopper-*"
+      },
+      {
+        # Website bucket *objects* (including admin-uploaded content under
+        # stagehopper's data/*). Plan reads bucket configuration, not objects.
+        # The radomskyi-tfstate bucket is deliberately absent: plan must read
+        # its own backend state. Extend this list when new buckets are added.
+        Sid    = "DenyWebsiteBucketObjectReads"
+        Effect = "Deny"
+        Action = ["s3:GetObject", "s3:GetObjectVersion"]
+        Resource = [
+          "arn:aws:s3:::stagehopper-radomskyi-com/*",
+          "arn:aws:s3:::spacetraders-radomskyi-com/*",
+          "arn:aws:s3:::radomskyi-com-website/*",
         ]
       }
     ]

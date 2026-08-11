@@ -25,7 +25,9 @@ projects/
 
 - Docker installed by `user_data`
 - SSM-managed instance profile (Session Manager for admin access — no open SSH)
-- Security group allowing ingress only from CloudFront's origin-facing prefix list
+- Security group for the host (kept non-authoritative over ingress; the single
+  CloudFront rule — 443 from the origin-facing prefix list — is a standalone rule
+  owned by `V-M-Pioneer-Trading/infrastructure`'s navigation-service stack)
 - Stable public Elastic IP output
 - Outputs for sibling repos: `ec2_instance_ip`, `ec2_security_group_id`
 

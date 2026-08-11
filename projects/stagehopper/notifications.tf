@@ -33,18 +33,9 @@ variable "vapid_subject" {
 }
 
 # ---- DynamoDB ----
-
-# Per-user notification preferences: enabled, leadMinutes, notifyAttending, notifyMaybe.
-resource "aws_dynamodb_table" "stagehopper_user_settings" {
-  name         = "stagehopper-user-settings"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "userId"
-
-  attribute {
-    name = "userId"
-    type = "S"
-  }
-}
+#
+# Notification preferences (enabled, leadMinutes, notifyAttending, notifyMaybe) live on the
+# `stagehopper-users` row (see main.tf), not a separate table.
 
 # Per-device Web Push subscriptions (one row per device).
 resource "aws_dynamodb_table" "stagehopper_push_subscriptions" {
@@ -90,8 +81,9 @@ resource "aws_dynamodb_table" "stagehopper_notif_dedup" {
 
 # ---- IAM: extend the API Lambda for the notification routes ----
 
-# The 4 new routes on the existing `stagehopper` function need read/write on the two
-# user-facing tables. Attached as its own inline policy so the base policy is untouched.
+# The 4 notification routes on the existing `stagehopper` function need access to the
+# push-subscriptions table (the settings now live on `stagehopper-users`, already granted
+# by the base policy). Attached as its own inline policy so the base policy is untouched.
 resource "aws_iam_role_policy" "stagehopper_lambda_notifications" {
   name = "stagehopper-lambda-notifications-policy"
   role = aws_iam_role.stagehopper_lambda.id
@@ -104,12 +96,10 @@ resource "aws_iam_role_policy" "stagehopper_lambda_notifications" {
         Action = [
           "dynamodb:GetItem",
           "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
           "dynamodb:DeleteItem",
           "dynamodb:Query",
         ]
         Resource = [
-          aws_dynamodb_table.stagehopper_user_settings.arn,
           aws_dynamodb_table.stagehopper_push_subscriptions.arn,
         ]
       }
@@ -140,11 +130,12 @@ resource "aws_iam_role_policy" "stagehopper_notifier" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "SettingsScanAndUpdate"
+        Sid    = "UsersScan"
         Effect = "Allow"
-        Action = ["dynamodb:Scan", "dynamodb:GetItem", "dynamodb:UpdateItem"]
-        # Prunes `enabled` off a user whose last subscription 410s, so UpdateItem too.
-        Resource = aws_dynamodb_table.stagehopper_user_settings.arn
+        # Scans the users table for notification-enabled users and reads each one's `rooms`
+        # map off the same row (no separate membership lookup). The notifier never writes it.
+        Action   = ["dynamodb:Scan", "dynamodb:GetItem"]
+        Resource = aws_dynamodb_table.stagehopper_users.arn
       },
       {
         Sid      = "SubscriptionsQueryAndPrune"
@@ -163,12 +154,6 @@ resource "aws_iam_role_policy" "stagehopper_notifier" {
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem"]
         Resource = aws_dynamodb_table.stagehopper_selections.arn
-      },
-      {
-        Sid      = "MembershipsRead"
-        Effect   = "Allow"
-        Action   = ["dynamodb:Query"]
-        Resource = aws_dynamodb_table.stagehopper_room_memberships.arn
       },
       {
         Sid      = "FestivalDataRead"
@@ -220,8 +205,7 @@ resource "aws_lambda_function" "stagehopper_notifier" {
   environment {
     variables = {
       TABLE_NAME               = aws_dynamodb_table.stagehopper_selections.name
-      MEMBERSHIPS_TABLE_NAME   = aws_dynamodb_table.stagehopper_room_memberships.name
-      USER_SETTINGS_TABLE      = aws_dynamodb_table.stagehopper_user_settings.name
+      USERS_TABLE              = aws_dynamodb_table.stagehopper_users.name
       PUSH_SUBSCRIPTIONS_TABLE = aws_dynamodb_table.stagehopper_push_subscriptions.name
       NOTIF_DEDUP_TABLE        = aws_dynamodb_table.stagehopper_notif_dedup.name
       SITE_BUCKET              = aws_s3_bucket.website.id

@@ -210,19 +210,18 @@ resource "aws_dynamodb_table" "stagehopper_selections" {
   }
 }
 
-resource "aws_dynamodb_table" "stagehopper_room_memberships" {
-  name         = "stagehopper-room-memberships"
+# One row per user (PK userId). A `rooms` map (roomId -> {color, updatedAt, name}) is the
+# inverse index of the selections table — the user's room list — and replaces the old
+# room-memberships table. Notification settings (enabled, leadMinutes, notifyAttending,
+# notifyMaybe, folded in from the old user-settings table) live on the same row. Only the
+# key is a defined attribute; `rooms` and the settings are schemaless.
+resource "aws_dynamodb_table" "stagehopper_users" {
+  name         = "stagehopper-users"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "userId"
-  range_key    = "roomId"
 
   attribute {
     name = "userId"
-    type = "S"
-  }
-
-  attribute {
-    name = "roomId"
     type = "S"
   }
 }
@@ -256,6 +255,9 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
         Action = [
           "dynamodb:GetItem",
           "dynamodb:PutItem",
+          # UpdateItem backs the users-table writes: a save SETs the user's `rooms.<id>`
+          # entry and their settings; leave/room-delete REMOVE it.
+          "dynamodb:UpdateItem",
           "dynamodb:DeleteItem",
           "dynamodb:Query",
           # Scan backs the admin room/user listing (no GSI for a global index);
@@ -266,7 +268,7 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
         ]
         Resource = [
           aws_dynamodb_table.stagehopper_selections.arn,
-          aws_dynamodb_table.stagehopper_room_memberships.arn,
+          aws_dynamodb_table.stagehopper_users.arn,
         ]
       },
       {
@@ -344,7 +346,7 @@ resource "aws_lambda_function" "stagehopper" {
   environment {
     variables = {
       TABLE_NAME             = aws_dynamodb_table.stagehopper_selections.name
-      MEMBERSHIPS_TABLE_NAME = aws_dynamodb_table.stagehopper_room_memberships.name
+      USERS_TABLE            = aws_dynamodb_table.stagehopper_users.name
       SITE_ORIGIN            = "https://${var.domain_name}"
       GOOGLE_CLIENT_ID       = var.google_client_id
       ADMIN_EMAILS           = var.admin_emails

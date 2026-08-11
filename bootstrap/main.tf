@@ -84,6 +84,34 @@ resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
   }
 }
 
+# Reject any non-TLS request to the state bucket, which otherwise had no policy.
+# Deliberately ONLY a deny-on-insecure-transport statement — no principal-
+# restricting Allow, which could lock out the CI roles or a workstation. A Deny
+# with Principal "*" is not a public-access grant, so it coexists with the public-
+# access block above. HTTPS (every AWS SDK/CLI default) is unaffected.
+resource "aws_s3_bucket_policy" "tfstate_tls_only" {
+  bucket = aws_s3_bucket.tfstate.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          aws_s3_bucket.tfstate.arn,
+          "${aws_s3_bucket.tfstate.arn}/*",
+        ]
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
+      }
+    ]
+  })
+}
+
 # ---------------------------------------------------------------------------
 # GitHub Actions OIDC — read-only role for `terraform plan` in CI
 #

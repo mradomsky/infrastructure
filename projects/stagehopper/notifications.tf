@@ -57,10 +57,12 @@ variable "vapid_subject" {
 
 # Per-device Web Push subscriptions (one row per device).
 resource "aws_dynamodb_table" "stagehopper_push_subscriptions" {
-  name         = "stagehopper-push-subscriptions"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "userId"
-  range_key    = "endpoint"
+  name                        = "stagehopper-push-subscriptions"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "userId"
+  range_key                   = "endpoint"
+  deletion_protection_enabled = true
+  # No PITR: clients re-subscribe, so these rows are regenerable.
 
   attribute {
     name = "userId"
@@ -76,10 +78,12 @@ resource "aws_dynamodb_table" "stagehopper_push_subscriptions" {
 # Sent-markers so a notification fires at most once per (user, performance). TTL reaps
 # them a few hours after the set; the app writes `ttl` as epoch seconds.
 resource "aws_dynamodb_table" "stagehopper_notif_dedup" {
-  name         = "stagehopper-notif-dedup"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "userId"
-  range_key    = "performanceId"
+  name                        = "stagehopper-notif-dedup"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "userId"
+  range_key                   = "performanceId"
+  deletion_protection_enabled = true
+  # No PITR: sent-markers are TTL-reaped within hours, worthless to restore.
 
   attribute {
     name = "userId"

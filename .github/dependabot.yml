@@ -7,3 +7,30 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  # Terraform provider + lock-file updates. Dependabot does not recurse, so one
+  # entry per stack directory is required.
+  - package-ecosystem: terraform
+    directory: /bootstrap
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: /shared
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: /projects/radomskyi-com
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: /projects/stagehopper
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: terraform
+    directory: /projects/spacetraders
+    schedule:
+      interval: weekly

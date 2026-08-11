@@ -72,6 +72,35 @@ resource "aws_cloudfront_origin_access_control" "oac" {
   signing_protocol                  = "sigv4"
 }
 
+# Security response headers for browser responses. HSTS, nosniff, DENY framing,
+# and a conservative referrer policy. `preload` is intentionally left off HSTS
+# until we're confident. Attached to both the default and /api/* behaviors: admin-
+# uploaded content under data/* is served from the site origin, so a nosniff + the
+# rest cheapen any upload-validation slip. No CSP yet — add scoped, report-only
+# first, since a wrong CSP breaks the SvelteKit app.
+resource "aws_cloudfront_response_headers_policy" "security_headers" {
+  name = "stagehopper-security-headers"
+
+  security_headers_config {
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = true
+      override                   = true
+    }
+    content_type_options {
+      override = true
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+    referrer_policy {
+      referrer_policy = "strict-origin-when-cross-origin"
+      override        = true
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "website_distribution" {
   enabled             = true
   default_root_object = "index.html"
@@ -97,12 +126,13 @@ resource "aws_cloudfront_distribution" "website_distribution" {
 
   # API routes — no caching, all methods forwarded
   ordered_cache_behavior {
-    path_pattern           = "/api/*"
-    target_origin_id       = "apigw-stagehopper"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods         = ["GET", "HEAD"]
-    compress               = false
+    path_pattern               = "/api/*"
+    target_origin_id           = "apigw-stagehopper"
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods             = ["GET", "HEAD"]
+    compress                   = false
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security_headers.id
 
     forwarded_values {
       query_string = true
@@ -118,11 +148,12 @@ resource "aws_cloudfront_distribution" "website_distribution" {
   }
 
   default_cache_behavior {
-    allowed_methods        = ["GET", "HEAD"]
-    cached_methods         = ["GET", "HEAD"]
-    target_origin_id       = "s3-website"
-    viewer_protocol_policy = "redirect-to-https"
-    compress               = true
+    allowed_methods            = ["GET", "HEAD"]
+    cached_methods             = ["GET", "HEAD"]
+    target_origin_id           = "s3-website"
+    viewer_protocol_policy     = "redirect-to-https"
+    compress                   = true
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security_headers.id
 
     forwarded_values {
       query_string = false
@@ -189,10 +220,11 @@ resource "aws_s3_bucket_policy" "website_policy" {
 # ============================================================
 
 resource "aws_dynamodb_table" "stagehopper_selections" {
-  name         = "stagehopper-selections"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "roomId"
-  range_key    = "userId"
+  name                        = "stagehopper-selections"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "roomId"
+  range_key                   = "userId"
+  deletion_protection_enabled = true
 
   attribute {
     name = "roomId"
@@ -208,6 +240,11 @@ resource "aws_dynamodb_table" "stagehopper_selections" {
     attribute_name = "expiresAt"
     enabled        = true
   }
+
+  # Real user data — point-in-time recovery for accidental writes/deletes.
+  point_in_time_recovery {
+    enabled = true
+  }
 }
 
 # One row per user (PK userId). A `rooms` map (roomId -> {color, updatedAt, name}) is the
@@ -216,13 +253,19 @@ resource "aws_dynamodb_table" "stagehopper_selections" {
 # notifyMaybe, folded in from the old user-settings table) live on the same row. Only the
 # key is a defined attribute; `rooms` and the settings are schemaless.
 resource "aws_dynamodb_table" "stagehopper_users" {
-  name         = "stagehopper-users"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "userId"
+  name                        = "stagehopper-users"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "userId"
+  deletion_protection_enabled = true
 
   attribute {
     name = "userId"
     type = "S"
+  }
+
+  # Real user data — point-in-time recovery for accidental writes/deletes.
+  point_in_time_recovery {
+    enabled = true
   }
 }
 

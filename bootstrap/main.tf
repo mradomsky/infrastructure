@@ -97,8 +97,13 @@ data "aws_iam_policy_document" "github_plan_trust" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
+      # Scoped to the pull_request context only (plan.yml runs on `pull_request`),
+      # not the old `:*` wildcard that also matched branch pushes, tags and any
+      # environment. Once this repo is public, the sub claim is the trust boundary,
+      # so it must not be broader than what CI actually uses. plan.yml additionally
+      # skips forked PRs (see its job-level `if`), so a fork cannot even trigger a run.
       values = [
-        "repo:mradomsky/infrastructure:*",
+        "repo:mradomsky/infrastructure:pull_request",
         "repo:V-M-Pioneer-Trading/infrastructure:*"
       ]
     }
@@ -113,6 +118,37 @@ resource "aws_iam_role" "github_plan" {
 resource "aws_iam_role_policy_attachment" "github_plan_readonly" {
   role       = aws_iam_role.github_plan.name
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+# Defence in depth: ReadOnlyAccess can read secret *values*, which a compromised plan
+# run must never do. An explicit Deny always overrides the managed Allow. Scoped so the
+# public AWS SSM parameter that `plan` genuinely reads
+# (data.aws_ssm_parameter.amazon_linux_2023_ami, under /aws/service/*) stays readable.
+resource "aws_iam_role_policy" "github_plan_deny_secret_reads" {
+  name = "github-actions-terraform-plan-deny-secrets"
+  role = aws_iam_role.github_plan.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "DenySecretsManagerReads"
+        Effect   = "Deny"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = "*"
+      },
+      {
+        Sid    = "DenySsmSecureStringSecretReads"
+        Effect = "Deny"
+        Action = ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"]
+        # The SecureString secrets only — extend this list when new ones are added
+        # (e.g. the VAPID key from stagehopper#75). Public /aws/service/* stays allowed.
+        Resource = [
+          "arn:aws:ssm:*:*:parameter/navigation-service-ghcr-pat"
+        ]
+      }
+    ]
+  })
 }
 
 # ---------------------------------------------------------------------------

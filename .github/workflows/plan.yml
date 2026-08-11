@@ -15,6 +15,12 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-latest
+    # Never run for a forked PR. A fork's PR runs this base-repo workflow with an OIDC
+    # token whose sub is `repo:mradomsky/infrastructure:pull_request` — which the plan
+    # role trusts — and `terraform plan` can execute attacker-controlled code (external
+    # data sources / providers in the PR's .tf). Once this repo is public anyone can
+    # fork, so this guard is what stops a pull-request-target-style credential theft.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       matrix:

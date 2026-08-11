@@ -2,8 +2,10 @@
 **/.terraform/
 *.tfstate
 *.tfstate.*
+# Ignore ALL tfvars, including *.auto.tfvars. The previous `!*.auto.tfvars` un-ignore was
+# a footgun: a `secret.auto.tfvars` would be committed. Secret values are passed via
+# TF_VAR_* env or out-of-band, never a committed file.
 *.tfvars
-!*.auto.tfvars
 crash.log
 crash.*.log
 

@@ -345,13 +345,13 @@ resource "aws_lambda_function" "stagehopper" {
 
   environment {
     variables = {
-      TABLE_NAME             = aws_dynamodb_table.stagehopper_selections.name
-      USERS_TABLE            = aws_dynamodb_table.stagehopper_users.name
-      SITE_ORIGIN            = "https://${var.domain_name}"
-      GOOGLE_CLIENT_ID       = var.google_client_id
-      ADMIN_EMAILS           = var.admin_emails
-      SITE_BUCKET            = aws_s3_bucket.website.id
-      CF_DISTRIBUTION_ID     = aws_cloudfront_distribution.website_distribution.id
+      TABLE_NAME         = aws_dynamodb_table.stagehopper_selections.name
+      USERS_TABLE        = aws_dynamodb_table.stagehopper_users.name
+      SITE_ORIGIN        = "https://${var.domain_name}"
+      GOOGLE_CLIENT_ID   = var.google_client_id
+      ADMIN_EMAILS       = var.admin_emails
+      SITE_BUCKET        = aws_s3_bucket.website.id
+      CF_DISTRIBUTION_ID = aws_cloudfront_distribution.website_distribution.id
     }
   }
 }

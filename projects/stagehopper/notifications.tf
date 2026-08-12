@@ -103,9 +103,11 @@ resource "aws_dynamodb_table" "stagehopper_notif_dedup" {
 
 # ---- IAM: extend the API Lambda for the notification routes ----
 
-# The 4 notification routes on the existing `stagehopper` function need access to the
+# The notification routes on the existing `stagehopper` function need access to the
 # push-subscriptions table (the settings now live on `stagehopper-users`, already granted
-# by the base policy). Attached as its own inline policy so the base policy is untouched.
+# by the base policy). It also invokes the notifier for the admin "send test notification"
+# route — reusing the one function that holds web-push and the VAPID keys, rather than
+# duplicating them here. Attached as its own inline policy so the base policy is untouched.
 resource "aws_iam_role_policy" "stagehopper_lambda_notifications" {
   name = "stagehopper-lambda-notifications-policy"
   role = aws_iam_role.stagehopper_lambda.id
@@ -114,6 +116,7 @@ resource "aws_iam_role_policy" "stagehopper_lambda_notifications" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "PushSubscriptions"
         Effect = "Allow"
         Action = [
           "dynamodb:GetItem",
@@ -124,6 +127,15 @@ resource "aws_iam_role_policy" "stagehopper_lambda_notifications" {
         Resource = [
           aws_dynamodb_table.stagehopper_push_subscriptions.arn,
         ]
+      },
+      {
+        # POST /admin/users/{userId}/test-notification invokes the notifier synchronously
+        # with a { test, userId } event. Identity-based invoke is sufficient for an
+        # in-account caller — no aws_lambda_permission is needed on the notifier.
+        Sid      = "InvokeNotifierForTestSend"
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = aws_lambda_function.stagehopper_notifier.arn
       }
     ]
   })
@@ -321,6 +333,14 @@ resource "aws_apigatewayv2_route" "add_push_subscription" {
 resource "aws_apigatewayv2_route" "remove_push_subscription" {
   api_id    = aws_apigatewayv2_api.stagehopper.id
   route_key = "DELETE /api/stagehopper/users/me/notifications/subscription"
+  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+}
+
+# Admin-only: fire an on-demand test push to a user's devices. Admin identity is enforced
+# in-Lambda (Google token), like the other admin routes — no API Gateway authorizer.
+resource "aws_apigatewayv2_route" "admin_test_notification" {
+  api_id    = aws_apigatewayv2_api.stagehopper.id
+  route_key = "POST /api/stagehopper/admin/users/{userId}/test-notification"
   target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
 }
 

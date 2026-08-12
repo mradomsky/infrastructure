@@ -333,10 +333,15 @@ data "aws_iam_policy_document" "command_interface_deploy_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
+    # Scoped to the exact ref the deploy workflow runs from — push to main and
+    # workflow_dispatch (which the .github/workflows/deploy.yml only exposes on
+    # main) both mint a token with sub ref:refs/heads/main. No tags, no
+    # environment, no PR contexts deploy, so nothing else needs trust. Uses
+    # StringEquals now that the value is exact (no wildcard left to match).
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:V-M-Pioneer-Trading/command-interface:*"]
+      values   = ["repo:V-M-Pioneer-Trading/command-interface:ref:refs/heads/main"]
     }
   }
 }

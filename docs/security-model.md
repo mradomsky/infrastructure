@@ -14,14 +14,12 @@ context allowed to assume it:
 | `github-actions-terraform-plan` | `repo:mradomsky/infrastructure:pull_request` | `ReadOnlyAccess`, minus explicit denies on secret reads and application-data reads |
 | `github-actions-terraform-apply` | `repo:mradomsky/infrastructure:ref:refs/heads/main` | `AdministratorAccess` |
 | `github-website-deployment-worker` | stagehopper release tags and `main`, radomskyi.com `main` | S3 sync, CloudFront invalidation, `lambda:UpdateFunctionCode` |
-| `command-interface-deploy` | `repo:V-M-Pioneer-Trading/command-interface:*` | S3 sync, CloudFront invalidation |
+| `command-interface-deploy` | `repo:V-M-Pioneer-Trading/command-interface:ref:refs/heads/main` | S3 sync, CloudFront invalidation |
 
 The `sub` claim is the trust boundary, so it is kept as narrow as the workflow
 actually needs. A wildcard such as `repo:owner/*:*` grants every repo in the
-account on every ref, which is why none of these use one. The one remaining
-ref-level wildcard is `command-interface-deploy` (any context within that single
-repo); narrowing it to the exact deploy contexts is tracked in
-[#34](https://github.com/mradomsky/infrastructure/issues/34).
+account on every ref, which is why none of these use one. Every role is now
+scoped to the exact contexts that deploy — no ref-level wildcards remain.
 
 Two further guards matter now that the repo is public:
 

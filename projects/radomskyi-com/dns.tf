@@ -64,3 +64,54 @@ resource "aws_route53_record" "cf_alias" {
     evaluate_target_health = false
   }
 }
+
+# Fastmail email hosting for radomsky.dev (+ subdomains via wildcard MX).
+resource "aws_route53_record" "fastmail_mx" {
+  zone_id = aws_route53_zone.dev.zone_id
+  name    = var.dev_domain_name
+  type    = "MX"
+  ttl     = 3600
+
+  records = [
+    "10 in1-smtp.messagingengine.com",
+    "20 in2-smtp.messagingengine.com",
+  ]
+}
+
+resource "aws_route53_record" "fastmail_mx_wildcard" {
+  zone_id = aws_route53_zone.dev.zone_id
+  name    = "*.${var.dev_domain_name}"
+  type    = "MX"
+  ttl     = 3600
+
+  records = [
+    "10 in1-smtp.messagingengine.com",
+    "20 in2-smtp.messagingengine.com",
+  ]
+}
+
+locals {
+  fastmail_dkim_records = {
+    fm1 = "fm1.radomsky.dev.dkim.fmhosted.com"
+    fm2 = "fm2.radomsky.dev.dkim.fmhosted.com"
+    fm3 = "fm3.radomsky.dev.dkim.fmhosted.com"
+  }
+}
+
+resource "aws_route53_record" "fastmail_dkim" {
+  for_each = local.fastmail_dkim_records
+
+  zone_id = aws_route53_zone.dev.zone_id
+  name    = "${each.key}._domainkey.${var.dev_domain_name}"
+  type    = "CNAME"
+  ttl     = 3600
+  records = [each.value]
+}
+
+resource "aws_route53_record" "fastmail_spf" {
+  zone_id = aws_route53_zone.dev.zone_id
+  name    = var.dev_domain_name
+  type    = "TXT"
+  ttl     = 3600
+  records = ["v=spf1 include:spf.messagingengine.com ?all"]
+}

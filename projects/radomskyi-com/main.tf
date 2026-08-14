@@ -115,17 +115,22 @@ resource "aws_cloudfront_distribution" "website_distribution" {
     }
   }
 
-  # SPA fallback - serve index.html for 404s (client-side routing)
+  # SPA fallback - serve the bare app shell for genuine misses (client-side routing).
+  #
+  # /200.html, not /index.html: index.html is the fully prerendered home page, so
+  # using it here served home page markup at every unmatched URL. The viewer-request
+  # function now rewrites extensionless URLs to their real .html files, which leaves
+  # these responses for what they are meant to be - actual 404s and dynamic routes.
   custom_error_response {
     error_code         = 404
     response_code      = 200
-    response_page_path = "/index.html"
+    response_page_path = "/200.html"
   }
 
   custom_error_response {
     error_code         = 403
     response_code      = 200
-    response_page_path = "/index.html"
+    response_page_path = "/200.html"
   }
 
   viewer_certificate {

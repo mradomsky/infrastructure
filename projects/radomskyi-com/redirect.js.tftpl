@@ -1,26 +1,56 @@
 function handler(event) {
 	var request = event.request;
 	var host = request.headers.host.value;
-
-	// Canonical host: serve the request unchanged.
-	if (host === '${canonical}') {
-		return request;
-	}
+	var uri = request.uri;
 
 	// Legacy domain, www, or the CloudFront default host: 301 to canonical,
-	// preserving path and query string.
+	// preserving path and query string. Redirect before rewriting, so the
+	// Location header carries the pretty URL the visitor typed.
+	if (host !== '${canonical}') {
+		return redirect('https://${canonical}' + uri + queryString(request));
+	}
+
+	// Canonical URLs carry no trailing slash (except the root), so fold the
+	// slashed form into it instead of serving the same page at two URLs.
+	if (uri.length > 1 && uri.charAt(uri.length - 1) === '/') {
+		return redirect('https://${canonical}' + uri.slice(0, -1) + queryString(request));
+	}
+
+	// Map the site's extensionless URLs onto the flat .html files the static
+	// build emits (/blog/my-post -> /blog/my-post.html).
+	//
+	// The origin is a private S3 bucket behind OAC, which has no index-document
+	// behaviour, so without this every non-root URL missed in S3 and fell
+	// through to the custom error response - serving the prerendered home page
+	// at someone else's URL, with the home page's title, canonical and JSON-LD,
+	// to anything that does not run JavaScript (link unfurlers, crawlers).
+	//
+	// Caveat: a path whose last segment contains a dot is treated as a file and
+	// left alone, so page slugs must not contain dots.
+	var last = uri.slice(uri.lastIndexOf('/') + 1);
+	if (last !== '' && last.indexOf('.') === -1) {
+		request.uri = uri + '.html';
+	}
+
+	return request;
+}
+
+function queryString(request) {
 	var qs = '';
 	var keys = Object.keys(request.querystring);
 	for (var i = 0; i < keys.length; i++) {
 		var k = keys[i];
 		qs += (i === 0 ? '?' : '&') + k + '=' + request.querystring[k].value;
 	}
+	return qs;
+}
 
+function redirect(location) {
 	return {
 		statusCode: 301,
 		statusDescription: 'Moved Permanently',
 		headers: {
-			location: { value: 'https://${canonical}' + request.uri + qs }
+			location: { value: location }
 		}
 	};
 }

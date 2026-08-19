@@ -113,5 +113,15 @@ resource "aws_route53_record" "fastmail_spf" {
   name    = var.dev_domain_name
   type    = "TXT"
   ttl     = 3600
-  records = ["v=spf1 include:spf.messagingengine.com ?all"]
+  records = ["v=spf1 include:spf.messagingengine.com ~all"]
+}
+
+# Report-only DMARC: visibility into spoofing attempts before tightening to
+# p=quarantine/reject.
+resource "aws_route53_record" "fastmail_dmarc" {
+  zone_id = aws_route53_zone.dev.zone_id
+  name    = "_dmarc.${var.dev_domain_name}"
+  type    = "TXT"
+  ttl     = 3600
+  records = ["v=DMARC1; p=none; rua=mailto:maksym@${var.dev_domain_name}"]
 }

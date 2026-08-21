@@ -373,16 +373,15 @@ resource "aws_lambda_function" "stagehopper" {
   filename      = "${path.module}/lambda_seed.zip"
   timeout       = 10
 
-  # GOOGLE_CLIENT_ID and ADMIN_EMAILS are secrets injected at apply time; they have
-  # empty-string defaults so a plan/apply run without them doesn't error. Ignoring
-  # them here means such a run also can't silently blank them in the live function —
-  # a secret-less `apply` once wiped auth in prod. They're set out-of-band and persist.
+  # No auth configuration is injected here any more. GOOGLE_CLIENT_ID and ADMIN_EMAILS are
+  # gone with the code that read them: the Lambda no longer verifies a token or consults an
+  # allowlist, because API Gateway's JWT authorizer does both before invoking it. Removing
+  # them from this map is what actually deletes them from the live function — which is also
+  # why their `ignore_changes` entries had to go, since ignoring a key preserves it.
   lifecycle {
     ignore_changes = [
       filename,
       source_code_hash,
-      environment[0].variables["GOOGLE_CLIENT_ID"],
-      environment[0].variables["ADMIN_EMAILS"],
     ]
   }
 
@@ -392,8 +391,6 @@ resource "aws_lambda_function" "stagehopper" {
       USERS_TABLE              = aws_dynamodb_table.stagehopper_users.name
       PUSH_SUBSCRIPTIONS_TABLE = aws_dynamodb_table.stagehopper_push_subscriptions.name
       SITE_ORIGIN              = "https://${var.domain_name}"
-      GOOGLE_CLIENT_ID         = var.google_client_id
-      ADMIN_EMAILS             = var.admin_emails
       SITE_BUCKET              = aws_s3_bucket.website.id
       CF_DISTRIBUTION_ID       = aws_cloudfront_distribution.website_distribution.id
     }
@@ -434,11 +431,43 @@ resource "aws_apigatewayv2_api" "stagehopper" {
   protocol_type = "HTTP"
 
   cors_configuration {
-    allow_origins     = ["https://${var.domain_name}"]
-    allow_methods     = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-    allow_headers     = ["Content-Type"]
+    allow_origins = ["https://${var.domain_name}"]
+    allow_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    # Authorization carries the Clerk token. It used to travel in the request body, which
+    # an authorizer cannot read — moving it here is what makes gateway-side verification
+    # possible at all, and is why the reads below could go back to being GETs.
+    allow_headers     = ["Content-Type", "Authorization"]
     allow_credentials = true
     max_age           = 300
+  }
+}
+
+# ------------------------------------------------------------
+# Authorizer
+#
+# Every route but `GET .../selections` is verified here, before the Lambda is invoked: an
+# unauthenticated request never reaches application code, and never costs an invocation.
+#
+# The admin split is the `authorization_scopes` on the 10 admin routes below. API Gateway
+# matches those against the token's `scope` claim (or `scp`) and rejects a mismatch with a
+# 403 of its own, so "who may administer" is a line in a plan diff rather than a branch in
+# a Lambda. The claim comes from Clerk's `apigw` JWT template, which reads it off the
+# user's public metadata.
+#
+# `audience` is not optional: API Gateway validates `aud` against it, and Clerk's default
+# session token has no `aud` claim at all. That is the whole reason the client requests a
+# template token instead.
+# ------------------------------------------------------------
+
+resource "aws_apigatewayv2_authorizer" "clerk" {
+  api_id           = aws_apigatewayv2_api.stagehopper.id
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+  name             = "clerk"
+
+  jwt_configuration {
+    audience = [var.clerk_audience]
+    issuer   = var.clerk_issuer
   }
 }
 
@@ -450,11 +479,16 @@ resource "aws_apigatewayv2_integration" "stagehopper" {
 }
 
 resource "aws_apigatewayv2_route" "create_room" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/rooms"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id             = aws_apigatewayv2_api.stagehopper.id
+  route_key          = "POST /api/stagehopper/rooms"
+  target             = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.clerk.id
 }
 
+# The one public route, deliberately. A room id is a capability URL: holding the link is
+# the authorization, and requiring a session to read a room would break sharing one with a
+# friend who has not signed up. Writes to the same path are authorized normally.
 resource "aws_apigatewayv2_route" "get_selections" {
   api_id    = aws_apigatewayv2_api.stagehopper.id
   route_key = "GET /api/stagehopper/rooms/{roomId}/selections"
@@ -462,81 +496,133 @@ resource "aws_apigatewayv2_route" "get_selections" {
 }
 
 resource "aws_apigatewayv2_route" "put_selections_self" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "PUT /api/stagehopper/rooms/{roomId}/selections"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id             = aws_apigatewayv2_api.stagehopper.id
+  route_key          = "PUT /api/stagehopper/rooms/{roomId}/selections"
+  target             = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.clerk.id
 }
 
 resource "aws_apigatewayv2_route" "delete_selections_self" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "DELETE /api/stagehopper/rooms/{roomId}/selections"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id             = aws_apigatewayv2_api.stagehopper.id
+  route_key          = "DELETE /api/stagehopper/rooms/{roomId}/selections"
+  target             = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.clerk.id
 }
 
+# GET, not POST. It was only ever a POST because a token could not ride a GET body — and
+# the token does not travel in the body any more.
 resource "aws_apigatewayv2_route" "list_my_rooms" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/users/me/rooms"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id             = aws_apigatewayv2_api.stagehopper.id
+  route_key          = "GET /api/stagehopper/users/me/rooms"
+  target             = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.clerk.id
 }
 
+# The only /admin/* route with no `authorization_scopes`, and it has to be: its job is to
+# tell a signed-in non-admin that they are not an admin, which a gateway 403 cannot do.
+# The Lambda reads the `scope` claim and answers. Nothing is granted by the answer.
 resource "aws_apigatewayv2_route" "admin_me" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/admin/me"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id             = aws_apigatewayv2_api.stagehopper.id
+  route_key          = "GET /api/stagehopper/admin/me"
+  target             = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.clerk.id
+}
+
+# New. It could not exist while the credential travelled in a request body, since `fetch`
+# refuses to send one on a GET — the admin editor had to read the published list off
+# CloudFront instead and race its own just-saved write.
+resource "aws_apigatewayv2_route" "admin_get_festivals" {
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "GET /api/stagehopper/admin/festivals"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 resource "aws_apigatewayv2_route" "admin_put_festivals" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "PUT /api/stagehopper/admin/festivals"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "PUT /api/stagehopper/admin/festivals"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 resource "aws_apigatewayv2_route" "admin_festival_image_upload" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/admin/festivals/{id}/image-upload"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "POST /api/stagehopper/admin/festivals/{id}/image-upload"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 resource "aws_apigatewayv2_route" "admin_festival_map_upload" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/admin/festivals/{id}/map-upload"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "POST /api/stagehopper/admin/festivals/{id}/map-upload"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 resource "aws_apigatewayv2_route" "admin_festival_timetable_import" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/admin/festivals/{id}/timetable-import"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "POST /api/stagehopper/admin/festivals/{id}/timetable-import"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 resource "aws_apigatewayv2_route" "admin_festival_timetable_patch" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "PATCH /api/stagehopper/admin/festivals/{id}/timetable"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "PATCH /api/stagehopper/admin/festivals/{id}/timetable"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 resource "aws_apigatewayv2_route" "admin_list_rooms" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/admin/rooms"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "POST /api/stagehopper/admin/rooms"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 resource "aws_apigatewayv2_route" "admin_list_users" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/admin/users"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "POST /api/stagehopper/admin/users"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 resource "aws_apigatewayv2_route" "admin_delete_room" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "DELETE /api/stagehopper/admin/rooms/{roomId}"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "DELETE /api/stagehopper/admin/rooms/{roomId}"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 resource "aws_apigatewayv2_route" "admin_delete_user" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "DELETE /api/stagehopper/admin/users/{userId}"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "DELETE /api/stagehopper/admin/users/{userId}"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 resource "aws_apigatewayv2_stage" "stagehopper_default" {
@@ -599,6 +685,34 @@ resource "aws_route53_record" "stagehopper" {
     zone_id                = aws_cloudfront_distribution.website_distribution.hosted_zone_id
     evaluate_target_health = false
   }
+}
+
+# ------------------------------------------------------------
+# Clerk production domain
+#
+# `clerk deploy` (run from a workstation, not here — see docs/clerk-auth-infra.md)
+# provisions the production Clerk instance and returns these five CNAMEs. They
+# are recorded verbatim in `var.clerk_dns_records` rather than derived, because
+# nothing in this repository can compute a Clerk-hosted target: the subdomain
+# under `0aaktimnb3rg.clerk.services` is unique per instance and only Clerk
+# knows it. Re-running `clerk deploy status` after any Clerk-side change is
+# the only way to confirm these still match.
+#
+# Two of the five (clkmail, clk._domainkey, clk2._domainkey) are Clerk's
+# transactional-email sending domain, not the frontend API — required for
+# password-reset and verification email to pass SPF/DKIM. All five gate the
+# same `domain_status` in `clerk deploy status`; Clerk does not distinguish
+# "auth works" from "email works" at the DNS layer.
+# ------------------------------------------------------------
+
+resource "aws_route53_record" "clerk" {
+  for_each = var.clerk_dns_records
+
+  zone_id = data.aws_route53_zone.parent.zone_id
+  name    = each.value.host
+  type    = each.value.type
+  ttl     = 60
+  records = [each.value.value]
 }
 
 # ============================================================

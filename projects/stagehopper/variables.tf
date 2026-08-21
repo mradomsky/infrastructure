@@ -35,27 +35,28 @@ variable "bucket_name" {
 
 variable "clerk_issuer" {
   description = <<-EOT
-    Clerk Frontend API URL, used as the JWT authorizer's issuer. This is NOT the domain
-    name shown in the Clerk dashboard (clerk.<domain>) — Clerk serves the actual frontend
-    API, and its OIDC discovery doc, one level deeper at clerk.clerk.<domain>. Verify with
-    `clerk api domains --instance prod` (`frontend_api_url` field) rather than assuming.
+    Clerk Frontend API URL, used as the JWT authorizer's issuer. Always verify with
+    `clerk api domains --instance prod` (`frontend_api_url` field) rather than assuming a
+    domain name — see the comment on the default below.
     Development instances use https://<slug>.clerk.accounts.dev.
     API Gateway resolves the signing keys from <issuer>/.well-known/openid-configuration.
   EOT
   type        = string
-  # The production instance's real issuer. Confirmed against `clerk api domains
-  # --instance prod`'s `frontend_api_url` and by curling
-  # https://clerk.clerk.stagehopper.radomskyi.com/.well-known/openid-configuration
-  # directly (200, correct `issuer` field) — an earlier default of
-  # https://clerk.stagehopper.radomskyi.com (no doubled `clerk.`) matched the dashboard's
-  # display name but not the real frontend API host, which made
-  # aws_apigatewayv2_authorizer.clerk fail with "Invalid issuer" even after DNS/SSL were
-  # live. Not secret — it is a public URL — and a default is required, not optional:
+  # Clerk's `PATCH /domains` coerces the `name` you submit down to the registrable domain
+  # (eTLD+1) — it does not accept a subdomain there. Submitting stagehopper.radomskyi.com
+  # (meaning to land on clerk.stagehopper.radomskyi.com, one `clerk.` prefix) collapsed to
+  # the bare radomskyi.com apex instead, so the real Frontend API is clerk.radomskyi.com,
+  # not any *.stagehopper.radomskyi.com host. Confirmed via `clerk api domains
+  # --instance prod` and by curling the discovery doc directly (200, correct `issuer`).
+  # Two earlier defaults were wrong for two different reasons: clerk.stagehopper... (no
+  # doubled clerk.) matched the dashboard's old display name but not the real host, and
+  # clerk.clerk.stagehopper... was that real host — until this rename moved it again. Not
+  # secret — it is a public URL — and a default is required, not optional:
   # `.github/workflows/plan.yml` runs `terraform plan` with no `-var` for any stack, so a
   # variable with no default breaks CI for every PR that touches this one, whether or not
   # it changes anything Clerk-related. Override with `-var` for a one-off point at
   # development instead (https://<slug>.clerk.accounts.dev).
-  default = "https://clerk.clerk.stagehopper.radomskyi.com"
+  default = "https://clerk.radomskyi.com"
 }
 
 # The five CNAMEs `clerk deploy status` reports as `pendingDnsRecords` once a
@@ -71,29 +72,29 @@ variable "clerk_dns_records" {
   }))
   default = {
     "clerk" = {
-      host  = "clerk.clerk.stagehopper.radomskyi.com"
+      host  = "clerk.radomskyi.com"
       type  = "CNAME"
       value = "frontend-api.clerk.services"
     }
     "accounts" = {
-      host  = "accounts.clerk.stagehopper.radomskyi.com"
+      host  = "accounts.radomskyi.com"
       type  = "CNAME"
       value = "accounts.clerk.services"
     }
     "clkmail" = {
-      host  = "clkmail.clerk.stagehopper.radomskyi.com"
+      host  = "clkmail.radomskyi.com"
       type  = "CNAME"
-      value = "mail.0aaktimnb3rg.clerk.services"
+      value = "mail.x16b6i6zia4c.clerk.services"
     }
     "clk-domainkey" = {
-      host  = "clk._domainkey.clerk.stagehopper.radomskyi.com"
+      host  = "clk._domainkey.radomskyi.com"
       type  = "CNAME"
-      value = "dkim1.0aaktimnb3rg.clerk.services"
+      value = "dkim1.x16b6i6zia4c.clerk.services"
     }
     "clk2-domainkey" = {
-      host  = "clk2._domainkey.clerk.stagehopper.radomskyi.com"
+      host  = "clk2._domainkey.radomskyi.com"
       type  = "CNAME"
-      value = "dkim2.0aaktimnb3rg.clerk.services"
+      value = "dkim2.x16b6i6zia4c.clerk.services"
     }
   }
 }

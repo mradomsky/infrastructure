@@ -312,36 +312,50 @@ resource "aws_cloudwatch_metric_alarm" "stagehopper_notifier_errors" {
 
 # ---- API Gateway routes (target the existing stagehopper integration) ----
 
+# These four stay POST/PUT with a body. Unlike the reads in main.tf they were never POSTs
+# only to carry a token — the body carries a push `endpoint`, an opaque and long
+# push-service URL that has no business in a query string.
 resource "aws_apigatewayv2_route" "get_notifications" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/users/me/notifications"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id             = aws_apigatewayv2_api.stagehopper.id
+  route_key          = "POST /api/stagehopper/users/me/notifications"
+  target             = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.clerk.id
 }
 
 resource "aws_apigatewayv2_route" "put_notifications" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "PUT /api/stagehopper/users/me/notifications"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id             = aws_apigatewayv2_api.stagehopper.id
+  route_key          = "PUT /api/stagehopper/users/me/notifications"
+  target             = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.clerk.id
 }
 
 resource "aws_apigatewayv2_route" "add_push_subscription" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/users/me/notifications/subscription"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id             = aws_apigatewayv2_api.stagehopper.id
+  route_key          = "POST /api/stagehopper/users/me/notifications/subscription"
+  target             = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.clerk.id
 }
 
 resource "aws_apigatewayv2_route" "remove_push_subscription" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "DELETE /api/stagehopper/users/me/notifications/subscription"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id             = aws_apigatewayv2_api.stagehopper.id
+  route_key          = "DELETE /api/stagehopper/users/me/notifications/subscription"
+  target             = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.clerk.id
 }
 
-# Admin-only: fire an on-demand test push to a user's devices. Admin identity is enforced
-# in-Lambda (Google token), like the other admin routes — no API Gateway authorizer.
+# Admin-only: fire an on-demand test push to a user's devices. Gated at the gateway on the
+# `admin` scope, like every other admin route (see the authorizer in main.tf).
 resource "aws_apigatewayv2_route" "admin_test_notification" {
-  api_id    = aws_apigatewayv2_api.stagehopper.id
-  route_key = "POST /api/stagehopper/admin/users/{userId}/test-notification"
-  target    = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "POST /api/stagehopper/admin/users/{userId}/test-notification"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
 }
 
 # ---- CI: let the deploy role ship the notifier bundle ----

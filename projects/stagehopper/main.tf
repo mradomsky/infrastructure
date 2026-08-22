@@ -136,7 +136,12 @@ resource "aws_cloudfront_distribution" "website_distribution" {
 
     forwarded_values {
       query_string = true
-      headers      = ["Origin", "Access-Control-Request-Headers", "Access-Control-Request-Method"]
+      # Authorization carries the Clerk token the JWT authorizer reads — CloudFront strips any
+      # header not listed here before it reaches the API Gateway origin. Omitting it doesn't
+      # error anywhere: the authorizer just sees no credential and 401s, identical to a real
+      # auth failure, so this list silently governs which headers the API can ever depend on.
+      # Check it whenever a route starts relying on a new request header.
+      headers = ["Authorization", "Origin", "Access-Control-Request-Headers", "Access-Control-Request-Method"]
       cookies {
         forward = "none"
       }

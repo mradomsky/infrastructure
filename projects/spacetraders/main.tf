@@ -147,6 +147,14 @@ resource "aws_cloudfront_distribution" "website_distribution" {
       "/api/automation/v1/*",
       "/api/automation/health",
       "/api/st-gateway/health",
+      # increment 3 Stage 4 / auth-design.md decision 9. Deliberately NOT
+      # /api/auth/v1/status here — that one gets its own ordered_cache_behavior
+      # below with a nonzero TTL; every path in this set is TTL-0 like the rest
+      # of the backend. Never /auth/v1/token (no path segment) — that route has
+      # no Caddy mapping at all, at any method, by design.
+      "/api/auth/v1/agent-token",
+      "/api/auth/v1/register",
+      "/api/auth/health",
     ])
 
     content {
@@ -169,6 +177,35 @@ resource "aws_cloudfront_distribution" "website_distribution" {
       default_ttl = 0
       max_ttl     = 0
     }
+  }
+
+  # increment 3 Stage 4 / auth-design.md decision 9: the one public GET this
+  # increment adds, with a short but nonzero TTL rather than the TTL-0 pattern
+  # every other backend path uses — decision 8 has the dashboard (and
+  # anonymous visitors) polling this for the WIPE_IMMINENT/APP_TOKEN_EXPIRED
+  # banners, and it changes rarely enough that a few seconds of staleness
+  # protects the origin for free. 5s is a judgment call, not a value the
+  # design doc pins down — short enough that a Restore Token/Reset Agent
+  # action is reflected almost immediately.
+  ordered_cache_behavior {
+    path_pattern           = "/api/auth/v1/status"
+    target_origin_id       = "backend"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = false
+
+    forwarded_values {
+      query_string = false
+      headers      = ["Origin"]
+      cookies {
+        forward = "none"
+      }
+    }
+
+    min_ttl     = 0
+    default_ttl = 5
+    max_ttl     = 30
   }
 
   default_cache_behavior {

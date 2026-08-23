@@ -274,6 +274,55 @@ resource "aws_dynamodb_table" "stagehopper_users" {
   }
 }
 
+# One row per festival (PK id). The write-side source of truth for the festival list —
+# `data/festivals/index.json` in S3 is a slim, republished-on-every-write public copy for
+# the landing page, not the source of truth. Replaces the old single `data/festivals.json`
+# blob, which meant every admin save read-modified-wrote every festival at once (see
+# mradomsky/stagehopper#134/#135).
+resource "aws_dynamodb_table" "stagehopper_festivals" {
+  name                        = "stagehopper-festivals"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "id"
+  deletion_protection_enabled = true
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+}
+
+# One row per performance (PK festivalId, SK id). The write-side source of truth for every
+# festival's timetable — `data/festivals/{festivalId}/timetable.json` in S3 is the derived,
+# republished-on-every-write public copy. Replaces the old single
+# `data/timetable-{festivalId}.json` blob per festival, which meant editing one performance
+# needed a full-file read-modify-write with an S3 ETag for optimistic concurrency; an
+# item-level write here needs neither.
+resource "aws_dynamodb_table" "stagehopper_performances" {
+  name                        = "stagehopper-performances"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "festivalId"
+  range_key                   = "id"
+  deletion_protection_enabled = true
+
+  attribute {
+    name = "festivalId"
+    type = "S"
+  }
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+}
+
 # ============================================================
 # Lambda IAM
 # ============================================================
@@ -317,6 +366,8 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
         Resource = [
           aws_dynamodb_table.stagehopper_selections.arn,
           aws_dynamodb_table.stagehopper_users.arn,
+          aws_dynamodb_table.stagehopper_festivals.arn,
+          aws_dynamodb_table.stagehopper_performances.arn,
         ]
       },
       {
@@ -329,28 +380,24 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
         Resource = "arn:aws:logs:*:*:*"
       },
       {
-        Sid    = "AdminDataReadWrite"
+        # The Lambda only ever writes the public artifacts under data/* now — the
+        # festivals list and every timetable moved to DynamoDB (above) as the source of
+        # truth, and this bucket only holds their republished copies plus admin-uploaded
+        # images/maps. Nothing here reads an object back, so no GetObject/HeadObject/
+        # ListBucket: the old write-once timetable import used to HEAD a key to check it
+        # didn't exist yet, but that check is a DynamoDB Query against
+        # stagehopper-performances now.
+        Sid    = "AdminDataWrite"
         Effect = "Allow"
         Action = [
-          "s3:GetObject",
           "s3:PutObject",
-          "s3:HeadObject",
+          "s3:DeleteObject",
         ]
-        # Covers data/festivals.json, data/timetable-{id}.json,
+        # Covers data/festivals/index.json, data/festivals/{id}/timetable.json,
         # data/festival-images/* and data/festival-maps/* — the presigned uploads are
         # signed with this role's credentials, so it needs PutObject even though the
         # browser is what actually performs the PUT.
         Resource = "${aws_s3_bucket.website.arn}/data/*"
-      },
-      {
-        # Without ListBucket, S3 answers a GET/HEAD on a *missing* key with 403, not
-        # 404. The write-once timetable import HEADs data/timetable-{id}.json to check
-        # it doesn't exist yet; a 403 there is indistinguishable from a real error and
-        # 500s the import. ListBucket makes the missing-key case a clean 404.
-        Sid      = "AdminDataListBucket"
-        Effect   = "Allow"
-        Action   = ["s3:ListBucket"]
-        Resource = aws_s3_bucket.website.arn
       },
       {
         Sid      = "AdminDataInvalidate"
@@ -395,6 +442,8 @@ resource "aws_lambda_function" "stagehopper" {
       TABLE_NAME               = aws_dynamodb_table.stagehopper_selections.name
       USERS_TABLE              = aws_dynamodb_table.stagehopper_users.name
       PUSH_SUBSCRIPTIONS_TABLE = aws_dynamodb_table.stagehopper_push_subscriptions.name
+      FESTIVALS_TABLE          = aws_dynamodb_table.stagehopper_festivals.name
+      PERFORMANCES_TABLE       = aws_dynamodb_table.stagehopper_performances.name
       SITE_ORIGIN              = "https://${var.domain_name}"
       SITE_BUCKET              = aws_s3_bucket.website.id
       CF_DISTRIBUTION_ID       = aws_cloudfront_distribution.website_distribution.id
@@ -549,9 +598,31 @@ resource "aws_apigatewayv2_route" "admin_get_festivals" {
   authorization_scopes = ["admin"]
 }
 
-resource "aws_apigatewayv2_route" "admin_put_festivals" {
+# Per-item now, replacing the old bulk `PUT /admin/festivals` — see
+# mradomsky/stagehopper#134/#135: a bulk replace meant saving one festival always
+# revalidated (and rewrote) every other one, so one bad or racing record blocked
+# everyone else's edit.
+resource "aws_apigatewayv2_route" "admin_create_festival" {
   api_id               = aws_apigatewayv2_api.stagehopper.id
-  route_key            = "PUT /api/stagehopper/admin/festivals"
+  route_key            = "POST /api/stagehopper/admin/festivals"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
+}
+
+resource "aws_apigatewayv2_route" "admin_update_festival" {
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "PATCH /api/stagehopper/admin/festivals/{id}"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
+}
+
+resource "aws_apigatewayv2_route" "admin_delete_festival" {
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "DELETE /api/stagehopper/admin/festivals/{id}"
   target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
   authorization_type   = "JWT"
   authorizer_id        = aws_apigatewayv2_authorizer.clerk.id

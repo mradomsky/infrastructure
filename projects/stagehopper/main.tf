@@ -665,6 +665,18 @@ resource "aws_apigatewayv2_route" "admin_festival_timetable_patch" {
   authorization_scopes = ["admin"]
 }
 
+# Separate from admin_update_festival: the drag-to-reorder stage UI saves on every drop,
+# and that endpoint only ever touches the stageOrder attribute — see mradomsky/stagehopper
+# updateFestivalStageOrder in lambda/index.ts.
+resource "aws_apigatewayv2_route" "admin_festival_stage_order" {
+  api_id               = aws_apigatewayv2_api.stagehopper.id
+  route_key            = "PATCH /api/stagehopper/admin/festivals/{id}/stage-order"
+  target               = "integrations/${aws_apigatewayv2_integration.stagehopper.id}"
+  authorization_type   = "JWT"
+  authorizer_id        = aws_apigatewayv2_authorizer.clerk.id
+  authorization_scopes = ["admin"]
+}
+
 resource "aws_apigatewayv2_route" "admin_list_rooms" {
   api_id               = aws_apigatewayv2_api.stagehopper.id
   route_key            = "POST /api/stagehopper/admin/rooms"

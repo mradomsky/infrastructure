@@ -866,9 +866,19 @@ resource "aws_iam_role_policy" "stagehopper_github_actions" {
         Resource = aws_cloudfront_distribution.website_distribution.arn
       },
       {
-        Sid      = "LambdaDeploy"
-        Effect   = "Allow"
-        Action   = ["lambda:UpdateFunctionCode"]
+        Sid    = "LambdaDeploy"
+        Effect = "Allow"
+        # GetFunction is not used by deploy.yml directly: the AWS CLI v2 runs the
+        # FunctionUpdatedV2 waiter automatically after update-function-code, and that waiter
+        # polls GetFunction until the new code is live. Without it the deploy fails *after*
+        # the code has already been accepted — the function updates fine and every step after
+        # it is skipped, which is a worse failure than not deploying at all. Read-only, and
+        # scoped to the one function this role may update.
+        Action = [
+          "lambda:UpdateFunctionCode",
+          "lambda:GetFunction",
+          "lambda:GetFunctionConfiguration",
+        ]
         Resource = aws_lambda_function.stagehopper.arn
       },
       # deploy.yml invokes the function directly with {"republish":"festivals-manifest"}

@@ -843,6 +843,23 @@ resource "aws_iam_role_policy" "stagehopper_github_actions" {
         Effect   = "Allow"
         Action   = ["lambda:UpdateFunctionCode"]
         Resource = aws_lambda_function.stagehopper.arn
+      },
+      # deploy.yml invokes the function directly with {"republish":"festivals-manifest"}
+      # right after update-function-code, to regenerate data/festivals/index.json.
+      #
+      # That file is derived from the festivals table by the Lambda, but is otherwise only
+      # rewritten when an admin saves a festival — so a release that adds a field to it
+      # leaves the old shape live until some unrelated edit happens to rebuild the file.
+      # `description` was missing from the public festival page for a whole release exactly
+      # this way. This is the permission that lets a deploy fix its own derived data.
+      #
+      # Not a new public surface: the handler takes that path only for an event with no
+      # routeKey, and every API Gateway event carries one. There is no route for it.
+      {
+        Sid      = "LambdaRepublish"
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = aws_lambda_function.stagehopper.arn
       }
     ]
   })

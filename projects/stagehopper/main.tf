@@ -323,6 +323,30 @@ resource "aws_dynamodb_table" "stagehopper_performances" {
   }
 }
 
+# One row per room (PK roomId): which festival the room belongs to, and when it was first
+# seen. Nothing else — this is an index, not a room record. A room’s display name stays
+# as its sentinel row in stagehopper-selections, where it rides the room-load Query for free.
+#
+# It exists so an admin timetable re-import can refuse to run when the festival already has
+# rooms: a re-import mints fresh performance ids and every pick is keyed by one, so replacing
+# a timetable under a live room would silently orphan every selection. Nothing else in the
+# schema records which festival a room belongs to — a custom-slug room never did at all.
+resource "aws_dynamodb_table" "stagehopper_rooms" {
+  name                        = "stagehopper-rooms"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "roomId"
+  deletion_protection_enabled = true
+
+  attribute {
+    name = "roomId"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+}
+
 # ============================================================
 # Lambda IAM
 # ============================================================
@@ -357,7 +381,8 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
           "dynamodb:UpdateItem",
           "dynamodb:DeleteItem",
           "dynamodb:Query",
-          # Scan backs the admin room/user listing (no GSI for a global index);
+          # Scan backs the admin room/user listing and the rooms-for-a-festival check
+          # the timetable re-import gate makes (no GSI for either global index);
           # BatchWriteItem backs the chunked admin deletes across both tables.
           "dynamodb:Scan",
           "dynamodb:BatchWriteItem",
@@ -368,6 +393,7 @@ resource "aws_iam_role_policy" "stagehopper_lambda" {
           aws_dynamodb_table.stagehopper_users.arn,
           aws_dynamodb_table.stagehopper_festivals.arn,
           aws_dynamodb_table.stagehopper_performances.arn,
+          aws_dynamodb_table.stagehopper_rooms.arn,
         ]
       },
       {
@@ -444,6 +470,7 @@ resource "aws_lambda_function" "stagehopper" {
       PUSH_SUBSCRIPTIONS_TABLE = aws_dynamodb_table.stagehopper_push_subscriptions.name
       FESTIVALS_TABLE          = aws_dynamodb_table.stagehopper_festivals.name
       PERFORMANCES_TABLE       = aws_dynamodb_table.stagehopper_performances.name
+      ROOMS_TABLE              = aws_dynamodb_table.stagehopper_rooms.name
       SITE_ORIGIN              = "https://${var.domain_name}"
       SITE_BUCKET              = aws_s3_bucket.website.id
       CF_DISTRIBUTION_ID       = aws_cloudfront_distribution.website_distribution.id

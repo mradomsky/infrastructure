@@ -179,9 +179,15 @@ resource "aws_iam_role_policy" "stagehopper_notifier" {
         Resource = aws_dynamodb_table.stagehopper_push_subscriptions.arn
       },
       {
-        Sid      = "DedupConditionalPut"
+        # PutItem claims a (user, performance) send; DeleteItem gives it back when the send
+        # then fails. The app has issued that rollback since stagehopper#84 and it has been
+        # denied ever since — deleteDedup logs the AccessDenied and swallows it, so a failed
+        # push permanently burned that performance for that user and the notification simply
+        # never arrived. The unit test covering the rollback passes because DynamoDB is
+        # mocked, which is why nothing surfaced it.
+        Sid      = "DedupClaimAndRollback"
         Effect   = "Allow"
-        Action   = ["dynamodb:PutItem"]
+        Action   = ["dynamodb:PutItem", "dynamodb:DeleteItem"]
         Resource = aws_dynamodb_table.stagehopper_notif_dedup.arn
       },
       {
@@ -189,6 +195,15 @@ resource "aws_iam_role_policy" "stagehopper_notifier" {
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem"]
         Resource = aws_dynamodb_table.stagehopper_selections.arn
+      },
+      {
+        # Which festival a room belongs to. The notifier used to infer this from the room id
+        # prefix, which a custom-slug room does not have — so nobody in one was ever notified.
+        # This table is the only place that answers it; see its comment in main.tf.
+        Sid      = "RoomsRead"
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem"]
+        Resource = aws_dynamodb_table.stagehopper_rooms.arn
       },
       {
         Sid      = "FestivalDataRead"
@@ -262,6 +277,7 @@ resource "aws_lambda_function" "stagehopper_notifier" {
       USERS_TABLE              = aws_dynamodb_table.stagehopper_users.name
       PUSH_SUBSCRIPTIONS_TABLE = aws_dynamodb_table.stagehopper_push_subscriptions.name
       NOTIF_DEDUP_TABLE        = aws_dynamodb_table.stagehopper_notif_dedup.name
+      ROOMS_TABLE              = aws_dynamodb_table.stagehopper_rooms.name
       SITE_BUCKET              = aws_s3_bucket.website.id
       VAPID_PRIVATE_KEY_PARAM  = var.vapid_private_key_param
       VAPID_PUBLIC_KEY         = var.vapid_public_key
@@ -368,9 +384,19 @@ resource "aws_iam_role_policy" "stagehopper_notifier_github_actions" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "NotifierLambdaDeploy"
-        Effect   = "Allow"
-        Action   = ["lambda:UpdateFunctionCode"]
+        Sid    = "NotifierLambdaDeploy"
+        Effect = "Allow"
+        # GetFunction is not used by deploy.yml directly: the AWS CLI v2 runs the
+        # FunctionUpdatedV2 waiter automatically after update-function-code, and that waiter
+        # polls GetFunction until the new code is live. Without it the deploy fails *after*
+        # the code has already been accepted — the function updates fine and every step after
+        # it is skipped, which is a worse failure than not deploying at all. Read-only, and
+        # scoped to the one function this role may update.
+        Action = [
+          "lambda:UpdateFunctionCode",
+          "lambda:GetFunction",
+          "lambda:GetFunctionConfiguration",
+        ]
         Resource = aws_lambda_function.stagehopper_notifier.arn
       }
     ]

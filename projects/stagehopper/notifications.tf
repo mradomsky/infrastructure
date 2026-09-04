@@ -179,9 +179,15 @@ resource "aws_iam_role_policy" "stagehopper_notifier" {
         Resource = aws_dynamodb_table.stagehopper_push_subscriptions.arn
       },
       {
-        Sid      = "DedupConditionalPut"
+        # PutItem claims a (user, performance) send; DeleteItem gives it back when the send
+        # then fails. The app has issued that rollback since stagehopper#84 and it has been
+        # denied ever since — deleteDedup logs the AccessDenied and swallows it, so a failed
+        # push permanently burned that performance for that user and the notification simply
+        # never arrived. The unit test covering the rollback passes because DynamoDB is
+        # mocked, which is why nothing surfaced it.
+        Sid      = "DedupClaimAndRollback"
         Effect   = "Allow"
-        Action   = ["dynamodb:PutItem"]
+        Action   = ["dynamodb:PutItem", "dynamodb:DeleteItem"]
         Resource = aws_dynamodb_table.stagehopper_notif_dedup.arn
       },
       {
@@ -189,6 +195,15 @@ resource "aws_iam_role_policy" "stagehopper_notifier" {
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem"]
         Resource = aws_dynamodb_table.stagehopper_selections.arn
+      },
+      {
+        # Which festival a room belongs to. The notifier used to infer this from the room id
+        # prefix, which a custom-slug room does not have — so nobody in one was ever notified.
+        # This table is the only place that answers it; see its comment in main.tf.
+        Sid      = "RoomsRead"
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem"]
+        Resource = aws_dynamodb_table.stagehopper_rooms.arn
       },
       {
         Sid      = "FestivalDataRead"
@@ -262,6 +277,7 @@ resource "aws_lambda_function" "stagehopper_notifier" {
       USERS_TABLE              = aws_dynamodb_table.stagehopper_users.name
       PUSH_SUBSCRIPTIONS_TABLE = aws_dynamodb_table.stagehopper_push_subscriptions.name
       NOTIF_DEDUP_TABLE        = aws_dynamodb_table.stagehopper_notif_dedup.name
+      ROOMS_TABLE              = aws_dynamodb_table.stagehopper_rooms.name
       SITE_BUCKET              = aws_s3_bucket.website.id
       VAPID_PRIVATE_KEY_PARAM  = var.vapid_private_key_param
       VAPID_PUBLIC_KEY         = var.vapid_public_key

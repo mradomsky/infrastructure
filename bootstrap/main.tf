@@ -292,6 +292,12 @@ resource "aws_iam_role_policy_attachment" "github_apply_admin" {
 #     from main (.github/workflows/deploy.yml in that repo)
 #   - mradomsky/my-website:    push to main (the radomskyi.com site)
 #
+# my-website has GitHub's immutable OIDC subject enabled (it was renamed from
+# radomskyi.com), so its `sub` carries numeric owner/repo IDs:
+# `repo:<owner>@<owner_id>/<repo>@<repo_id>:...`. Pinning the IDs keeps the trust
+# valid across renames and stops a new repo re-using an old name from matching.
+# Check a repo's format with `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`.
+#
 # The per-project deploy policies stay attached from the project stacks
 # (projects/stagehopper, which grants S3 sync, CloudFront invalidation and
 # lambda:UpdateFunctionCode) — this block owns only the role and its trust.
@@ -319,7 +325,7 @@ data "aws_iam_policy_document" "github_website_deploy_trust" {
       values = [
         "repo:mradomsky/stagehopper:ref:refs/tags/v*",
         "repo:mradomsky/stagehopper:ref:refs/heads/main",
-        "repo:mradomsky/my-website:ref:refs/heads/main",
+        "repo:mradomsky@7285810/my-website@993933435:ref:refs/heads/main",
       ]
     }
   }

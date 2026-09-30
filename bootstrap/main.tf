@@ -290,7 +290,7 @@ resource "aws_iam_role_policy_attachment" "github_apply_admin" {
 # so the trust is reviewable and scoped to the exact CI contexts that deploy:
 #   - mradomsky/stagehopper:   release tags (`v*`) + workflow_dispatch re-runs
 #     from main (.github/workflows/deploy.yml in that repo)
-#   - mradomsky/radomskyi.com: push to main
+#   - mradomsky/my-website:    push to main (the radomskyi.com site)
 #
 # The per-project deploy policies stay attached from the project stacks
 # (projects/stagehopper, which grants S3 sync, CloudFront invalidation and
@@ -319,7 +319,7 @@ data "aws_iam_policy_document" "github_website_deploy_trust" {
       values = [
         "repo:mradomsky/stagehopper:ref:refs/tags/v*",
         "repo:mradomsky/stagehopper:ref:refs/heads/main",
-        "repo:mradomsky/radomskyi.com:ref:refs/heads/main",
+        "repo:mradomsky/my-website:ref:refs/heads/main",
       ]
     }
   }

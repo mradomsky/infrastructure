@@ -13,7 +13,7 @@ context allowed to assume it:
 | --- | --- | --- |
 | `github-actions-terraform-plan` | `repo:mradomsky/infrastructure:pull_request` | `ReadOnlyAccess`, minus explicit denies on secret reads and application-data reads |
 | `github-actions-terraform-apply` | `repo:mradomsky/infrastructure:ref:refs/heads/main` | `AdministratorAccess` |
-| `github-website-deployment-worker` | stagehopper release tags and `main`, radomskyi.com `main` | S3 sync, CloudFront invalidation, `lambda:UpdateFunctionCode` |
+| `github-website-deployment-worker` | stagehopper release tags and `main`, my-website (radomskyi.com site) `main` | S3 sync, CloudFront invalidation, `lambda:UpdateFunctionCode` |
 | `command-interface-deploy` | `repo:V-M-Pioneer-Trading/command-interface:ref:refs/heads/main` | S3 sync, CloudFront invalidation |
 
 The `sub` claim is the trust boundary, so it is kept as narrow as the workflow

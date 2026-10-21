@@ -44,6 +44,23 @@ adds no route here. And **when a public field looks missing, read the published 
 reading any code**; present in DynamoDB and absent from `data/festivals/index.json` localizes
 the bug to the publisher immediately.
 
+## The SPA fallback is a viewer-request function, not a custom error response
+
+`aws_cloudfront_function.spa_fallback` (code in `spa-fallback.js`) is attached to the site
+behaviour only. It rewrites any URI whose last path segment has no dot (and that is not under
+`/data/` or `/_app/`) to `/index.html`, so deep links like `/festival/{id}` load the app shell.
+
+It replaced two distribution-wide `custom_error_response` blocks (403/404 → `200 /index.html`).
+Those applied to **every** behaviour, `/api/*` included, so an unwired or failing API route
+answered `200 text/html` and the client parsed HTML as JSON (mradomsky/stagehopper#181, the
+app's CLAUDE.md trap 1). **Do not add a `custom_error_response` back**: it cannot be scoped to
+one behaviour, and it would silently re-break every API error status.
+
+Two consequences. A missing object under `/data/*` or a missing asset now answers S3's own
+status through OAC (403, since CloudFront has no `s3:ListBucket`), which the app already treats
+as "not there". And an app route segment must never contain a dot, or the function will treat
+it as a file and S3 will 403 it.
+
 ## Where things live
 
 - App code (SvelteKit + Lambda handler): `stagehopper` repo, separate clone.

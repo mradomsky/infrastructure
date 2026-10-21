@@ -197,6 +197,15 @@ resource "aws_iam_role_policy" "stagehopper_notifier" {
         Resource = aws_dynamodb_table.stagehopper_selections.arn
       },
       {
+        # Festival Picks (mradomsky/stagehopper#207): one GetItem per enabled user per active
+        # Festival, keyed {festivalId, userId}. Read-only. Replaces SelectionsRead and
+        # RoomsRead once the release that reads Picks is live; both stay until then.
+        Sid      = "PicksRead"
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem"]
+        Resource = aws_dynamodb_table.stagehopper_picks.arn
+      },
+      {
         # Which festival a room belongs to. The notifier used to infer this from the room id
         # prefix, which a custom-slug room does not have — so nobody in one was ever notified.
         # This table is the only place that answers it; see its comment in main.tf.
@@ -271,6 +280,8 @@ resource "aws_lambda_function" "stagehopper_notifier" {
     ]
   }
 
+  # PICKS_TABLE unset makes the notifier throw at start on every tick (#207). The app's
+  # deploy.yml refuses a release when it is missing (its guard reads the live configuration).
   environment {
     variables = {
       TABLE_NAME               = aws_dynamodb_table.stagehopper_selections.name
@@ -278,6 +289,7 @@ resource "aws_lambda_function" "stagehopper_notifier" {
       PUSH_SUBSCRIPTIONS_TABLE = aws_dynamodb_table.stagehopper_push_subscriptions.name
       NOTIF_DEDUP_TABLE        = aws_dynamodb_table.stagehopper_notif_dedup.name
       ROOMS_TABLE              = aws_dynamodb_table.stagehopper_rooms.name
+      PICKS_TABLE              = aws_dynamodb_table.stagehopper_picks.name
       SITE_BUCKET              = aws_s3_bucket.website.id
       VAPID_PRIVATE_KEY_PARAM  = var.vapid_private_key_param
       VAPID_PUBLIC_KEY         = var.vapid_public_key

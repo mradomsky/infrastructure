@@ -160,6 +160,15 @@ resource "aws_cloudfront_distribution" "website_distribution" {
     compress                   = true
     response_headers_policy_id = aws_cloudfront_response_headers_policy.security_headers.id
 
+    # SPA fallback. Deep links are rewritten to /index.html here, on this behaviour only.
+    # There is deliberately no `custom_error_response` on the distribution any more: those
+    # apply to every behaviour, so they turned each /api/* 403 and 404 into `200 text/html`
+    # (mradomsky/stagehopper#181). Do not bring them back.
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_fallback.arn
+    }
+
     forwarded_values {
       query_string = false
       cookies {
@@ -176,19 +185,6 @@ resource "aws_cloudfront_distribution" "website_distribution" {
     geo_restriction {
       restriction_type = "none"
     }
-  }
-
-  # SPA fallback
-  custom_error_response {
-    error_code         = 404
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
-
-  custom_error_response {
-    error_code         = 403
-    response_code      = 200
-    response_page_path = "/index.html"
   }
 
   viewer_certificate {
@@ -463,6 +459,8 @@ resource "aws_lambda_function" "stagehopper" {
     ]
   }
 
+  # PICKS_TABLE and MESSAGES_TABLE (festival-space.tf) have no fallback name in the Lambda:
+  # unset, every Picks route refuses and every chat route and admin user delete answers 500.
   environment {
     variables = {
       TABLE_NAME               = aws_dynamodb_table.stagehopper_selections.name
@@ -471,6 +469,8 @@ resource "aws_lambda_function" "stagehopper" {
       FESTIVALS_TABLE          = aws_dynamodb_table.stagehopper_festivals.name
       PERFORMANCES_TABLE       = aws_dynamodb_table.stagehopper_performances.name
       ROOMS_TABLE              = aws_dynamodb_table.stagehopper_rooms.name
+      PICKS_TABLE              = aws_dynamodb_table.stagehopper_picks.name
+      MESSAGES_TABLE           = aws_dynamodb_table.stagehopper_messages.name
       SITE_ORIGIN              = "https://${var.domain_name}"
       SITE_BUCKET              = aws_s3_bucket.website.id
       CF_DISTRIBUTION_ID       = aws_cloudfront_distribution.website_distribution.id
@@ -526,10 +526,12 @@ resource "aws_apigatewayv2_api" "stagehopper" {
 # ------------------------------------------------------------
 # Authorizer
 #
-# Every route but `GET .../selections` is verified here, before the Lambda is invoked: an
-# unauthenticated request never reaches application code, and never costs an invocation.
+# Every route but the public reads (`GET .../selections` here; `GET .../picks`,
+# `GET .../messages` and `GET .../summary` in festival-space.tf) is verified here, before the
+# Lambda is invoked: an unauthenticated request never reaches application code, and never
+# costs an invocation.
 #
-# The admin split is the `authorization_scopes` on the 10 admin routes below. API Gateway
+# The admin split is the `authorization_scopes` on the /admin/* routes. API Gateway
 # matches those against the token's `scope` claim (or `scp`) and rejects a mismatch with a
 # 403 of its own, so "who may administer" is a line in a plan diff rather than a branch in
 # a Lambda. The claim comes from Clerk's `apigw` JWT template, which reads it off the
